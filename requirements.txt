@@ -1,0 +1,5 @@
+nba_api==1.11.4
+pandas==3.0.3
+scikit-learn==1.9.0
+joblib==1.6.0
+streamlit==1.59.1
