@@ -3,6 +3,7 @@
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.59-FF4B4B?logo=streamlit&logoColor=white)
 ![scikit-learn](https://img.shields.io/badge/scikit--learn-1.9-F7931E?logo=scikitlearn&logoColor=white)
+[![Licencia: MIT](https://img.shields.io/badge/Licencia-MIT-green)](LICENSE)
 
 Predice el porcentaje de victoria de cada equipo en un partido de la temporada **2026-27** según los 5 jugadores que elijas.
 Usa una regresión logística entrenada con las stats individuales de temporadas anteriores.
@@ -96,6 +97,10 @@ Un movimiento deja de aplicarse solo cuando la API ya lo refleja.
 - No considera la química entre jugadores (planeado para la versión 2).
 - No tiene en cuenta lesiones, descansos ni partidos consecutivos.
 - Las stats de los 5 jugadores se promedian sin ponderar por minutos.
+
+## Licencia
+
+[MIT](LICENSE) © 2026 Ronaldo Chavez
 
 ---
 
