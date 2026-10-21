@@ -12,7 +12,7 @@ from nba_api.stats.endpoints import (
 
 DATA_DIR = Path(__file__).parent / "data"
 MOVES_PATH = Path(__file__).parent / "roster_moves.csv"
-SEASONS = ["2024-25", "2025-26"]
+SEASONS = ["2021-22", "2022-23", "2023-24", "2024-25", "2025-26"]  # temporadas con partidos para entrenar
 CURRENT_SEASON = "2026-27"
 STAT_COLS = ["PTS", "REB", "AST", "STL", "BLK", "TOV", "MIN", "FG_PCT", "FG3_PCT", "PLUS_MINUS"]
 PAUSE = 1.5  # segundos entre llamadas para no saturar stats.nba.com

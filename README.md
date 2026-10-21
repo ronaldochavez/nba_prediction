@@ -20,31 +20,54 @@ Usa una regresión logística entrenada con las stats individuales de temporadas
 
 ## Resultados
 
-Entrenado con los 1,230 partidos de 2024-25 y evaluado con los 1,230 de 2025-26:
+Cada temporada se predice con un modelo entrenado solo con las temporadas anteriores:
 
-| | Aciertos |
-|---|---|
-| Siempre gana el local (baseline) | 55.4 % |
-| **Modelo** | **65.4 %** |
+| Temporada de prueba | Entrenamiento | Modelo | Siempre gana el local |
+|---|---|---|---|
+| 2023-24 | 2021-22 a 2022-23 | 66.5 % | 54.3 % |
+| 2024-25 | 2021-22 a 2023-24 | 66.7 % | 54.4 % |
+| 2025-26 | 2021-22 a 2024-25 | 66.3 % | 55.4 % |
+| **Promedio** | | **66.5 %** | 54.7 % |
+
+El modelo final, el que usa la app para 2026-27, se entrena con los 6,150 partidos de 2021-22 a 2025-26.
 
 ## Cómo funciona
 
 1. **Alineación**: en cada partido histórico se toman los 5 jugadores con más minutos de cada equipo.
-2. **Features**: el promedio de PTS, REB, AST, STL, BLK, TOV, MIN, FG%, 3P% y +/- de esos 5 jugadores para cada equipo, y la diferencia local − visitante.
-3. **Stats de la temporada anterior**: los partidos de 2024-25 se describen con las stats de 2023-24, los de 2025-26 con las de 2024-25 y los de 2026-27 con las de 2025-26.
+2. **Features**: la diferencia local − visitante del promedio de PTS, REB, AST, STL, BLK, TOV, MIN, FG%, 3P% y +/- de esos 5 jugadores.
+3. **Stats de la temporada anterior**: cada partido se describe con las stats de la temporada previa (los de 2025-26 con las de 2024-25, los de 2026-27 con las de 2025-26, etc.).
    Así el modelo se evalúa igual que como se usa: los promedios de la misma temporada ya incluyen el resultado del partido que se predice e inflan el acierto de forma artificial.
-4. **Modelo**: regresión logística con las features estandarizadas.
+4. **Modelo**: regresión logística sobre las diferencias estandarizadas, con regularización elegida por validación cruzada.
+   Las stats están muy correlacionadas (PTS y MIN: 0.90) y, sin regularización, el modelo repartía el peso entre ellas al azar.
 
    ```
-   z = ventaja de local + Σ peso × stat estandarizada
+   z = ventaja de local + Σ peso × diferencia estandarizada
    P(gana el local) = 1 / (1 + e^(−z))
    ```
 
 5. **Jugadores sin stats** (novatos o quienes no jugaron la temporada anterior) cuentan como un jugador de banca promedio (menos de 15 minutos por partido).
 
+### Cuánto pesa cada stat
+
+| Stat | Peso | Importancia |
+|---|---|---|
+| +/- | +0.27 | 25 % |
+| FG% | +0.17 | 16 % |
+| Puntos | +0.17 | 16 % |
+| Robos | +0.16 | 15 % |
+| Asistencias | +0.09 | 8 % |
+| Tapones | +0.06 | 6 % |
+| Rebotes | +0.06 | 6 % |
+| Minutos | +0.04 | 3 % |
+| Pérdidas | +0.03 | 3 % |
+| 3P% | +0.02 | 2 % |
+
+El peso es el cambio en `z` por cada desviación estándar de diferencia entre las alineaciones; la ventaja de local vale +0.24.
+Que las pérdidas sumen a favor no es un error: las cometen más los jugadores que manejan mucho el balón, que suelen ser las estrellas.
+
 ## Instalación y uso
 
-El repositorio ya incluye los datos (descargados el 9 de octubre de 2026) y el modelo entrenado.
+El repositorio ya incluye los datos (descargados en octubre de 2026) y el modelo entrenado.
 
 1. Instala las dependencias:
    ```bash
@@ -79,9 +102,9 @@ Los datos vienen de [stats.nba.com](https://www.nba.com/stats) a través de [nba
 
 | Archivo | Contenido |
 |---|---|
-| `player_stats_<temporada>.csv` | Stats por partido de cada jugador (2023-24 a 2025-26) |
-| `player_games_<temporada>.csv` | Qué jugadores participaron en cada partido y cuántos minutos |
-| `games_<temporada>.csv` | Local, visitante y marcador de cada partido |
+| `player_stats_<temporada>.csv` | Stats por partido de cada jugador (2020-21 a 2025-26) |
+| `player_games_<temporada>.csv` | Qué jugadores participaron en cada partido y cuántos minutos (2021-22 a 2025-26) |
+| `games_<temporada>.csv` | Local, visitante y marcador de cada partido (2021-22 a 2025-26) |
 | `schedule_2026-27.csv` | Calendario de la temporada actual |
 | `rosters_2026-27.csv` | Plantillas actuales |
 

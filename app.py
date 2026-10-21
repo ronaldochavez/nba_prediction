@@ -5,7 +5,7 @@ import pandas as pd
 import streamlit as st
 
 from data import CURRENT_SEASON, SEASONS, STAT_COLS, current_rosters, load, prev_season
-from model import MODEL_PATH, contributions, game_features, stats_table
+from model import MODEL_PATH, contributions, lineup_stats, stats_table, weights
 
 LABELS = {
     "PTS": "Puntos", "REB": "Rebotes", "AST": "Asistencias", "STL": "Robos", "BLK": "Tapones",
@@ -39,14 +39,14 @@ st.title("Predicción NBA")
 players_tab, prediction_tab = st.tabs(["Jugadores", "Predicción"])
 
 with players_tab:
-    old, new = SEASONS
-    stats = {s: load_csv("player_stats", s).set_index("PLAYER_ID") for s in SEASONS}
+    old, new = SEASONS[-2:]
+    stats = {s: load_csv("player_stats", s).set_index("PLAYER_ID") for s in (old, new)}
     names = pd.concat([stats[old]["PLAYER_NAME"], stats[new]["PLAYER_NAME"]])
     names = names[~names.index.duplicated(keep="last")].sort_values()
     top_scorer = stats[new]["PTS"].idxmax()
     player_id = st.selectbox("Jugador", names.index, index=names.index.get_loc(top_scorer), format_func=names.get)
 
-    rows = {s: stats[s].reindex([player_id]).iloc[0] for s in SEASONS}
+    rows = {s: stats[s].reindex([player_id]).iloc[0] for s in (old, new)}
     st.caption(" · ".join(
         f"{s}: {r.TEAM_ABBREVIATION}, {r.GP:.0f} partidos" if pd.notna(r.GP) else f"{s}: no jugó"
         for s, r in rows.items()
@@ -61,7 +61,7 @@ with players_tab:
         new: st.column_config.NumberColumn(format="%.1f"),
         "Diferencia": st.column_config.NumberColumn(format="%+.1f"),
     })
-    st.bar_chart(table[SEASONS], horizontal=True, sort=False, stack=False)
+    st.bar_chart(table[[old, new]], horizontal=True, sort=False, stack=False)
 
 with prediction_tab:
     schedule = load_csv("schedule", CURRENT_SEASON)
@@ -109,17 +109,19 @@ with prediction_tab:
     if len(away_ids) < 5 or len(home_ids) < 5:
         st.warning("Elige 5 jugadores por equipo.")
     else:
-        features = game_features(home_ids, away_ids, ps, bench)
+        home_avg = lineup_stats(home_ids, ps, bench)
+        away_avg = lineup_stats(away_ids, ps, bench)
+        features = home_avg - away_avg
         p_home = model.predict_proba(features.to_frame().T)[0, 1]
         away_col.metric(f"Victoria {game.AWAY_TEAM}", f"{1 - p_home:.0%}", border=True)
         home_col.metric(f"Victoria {game.HOME_TEAM}", f"{p_home:.0%}", border=True)
 
         st.subheader("¿Por qué este porcentaje?")
         detail = pd.DataFrame({
-            game.AWAY_TEAM: [features[f"AWAY_{s}"] for s in STAT_COLS],
-            game.HOME_TEAM: [features[f"HOME_{s}"] for s in STAT_COLS],
+            game.AWAY_TEAM: away_avg,
+            game.HOME_TEAM: home_avg,
             "Aporte": contributions(model, features),
-        }, index=STAT_COLS)
+        })
         detail.loc[["FG_PCT", "FG3_PCT"], [game.AWAY_TEAM, game.HOME_TEAM]] *= 100
         detail = detail.rename(index=LABELS).sort_values("Aporte", key=abs, ascending=False)
 
@@ -131,8 +133,8 @@ with prediction_tab:
         })
         chart_col.bar_chart(
             pd.DataFrame({
-                f"A favor de {game.HOME_TEAM}": detail["Aporte"].clip(lower=0),
-                f"A favor de {game.AWAY_TEAM}": detail["Aporte"].clip(upper=0),
+                f"Local: {game.HOME_TEAM}": detail["Aporte"].clip(lower=0),
+                f"Visitante: {game.AWAY_TEAM}": detail["Aporte"].clip(upper=0),
             }),
             horizontal=True,
             sort=False,
@@ -150,3 +152,17 @@ with prediction_tab:
         f"Según las stats de {prev_season(CURRENT_SEASON)}. "
         "Los jugadores sin stats cuentan como un jugador de banca promedio."
     )
+
+    with st.expander("Cuánto pesa cada stat en el modelo"):
+        model_weights = weights(model).rename(index=LABELS)
+        model_weights["Importancia"] *= 100
+        st.dataframe(model_weights, column_config={
+            "Peso": st.column_config.NumberColumn(
+                format="%+.2f", help="Cambio en el puntaje por cada desviación estándar de diferencia entre alineaciones"
+            ),
+            "Importancia": st.column_config.ProgressColumn(format="%.0f%%", min_value=0, max_value=100),
+        })
+        st.caption(
+            f"Aprendidos con los partidos de {SEASONS[0]} a {SEASONS[-1]}. "
+            f"Ventaja de local: {model[-1].intercept_[0]:+.2f}."
+        )
