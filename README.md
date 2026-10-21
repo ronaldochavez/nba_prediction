@@ -5,16 +5,17 @@
 ![scikit-learn](https://img.shields.io/badge/scikit--learn-1.9-F7931E?logo=scikitlearn&logoColor=white)
 [![Licencia: MIT](https://img.shields.io/badge/Licencia-MIT-green)](LICENSE)
 
-Predice el porcentaje de victoria de cada equipo en un partido de la temporada **2026-27** según los 5 jugadores que elijas.
-Usa una regresión logística entrenada con las stats individuales de temporadas anteriores.
+Predice el porcentaje de victoria y el marcador de un partido de la temporada **2026-27** según los 5 jugadores que elijas.
+Usa una regresión logística entrenada con las stats individuales de temporadas anteriores y una proyección de puntos basada en efectividad ofensiva, defensiva y posesiones.
 
 ![Pestaña Predicción](docs/prediccion.png)
 
 ## Qué hace
 
 - **Jugadores**: compara las stats por partido de un jugador entre 2024-25 y 2025-26, con la diferencia entre ambas y una gráfica.
-- **Predicción**: eliges una fecha y un partido del calendario 2026-27, armas la alineación de cada equipo y ves el porcentaje de victoria.
-  Por defecto se sugieren los 5 jugadores con más minutos en 2025-26. Debajo se muestra qué stats inclinan la balanza hacia cada equipo.
+- **Predicción**: eliges una fecha y un partido del calendario 2026-27, armas la alineación de cada equipo y ves el porcentaje de victoria,
+  los puntos proyectados de cada equipo y el total del partido. Por defecto se sugieren los 5 jugadores con más minutos en 2025-26.
+  Debajo se muestra qué stats inclinan la balanza hacia cada equipo.
 
 ![Pestaña Jugadores](docs/jugadores.png)
 
@@ -65,6 +66,33 @@ El modelo final, el que usa la app para 2026-27, se entrena con los 6,150 partid
 El peso es el cambio en `z` por cada desviación estándar de diferencia entre las alineaciones; la ventaja de local vale +0.24.
 Que las pérdidas sumen a favor no es un error: las cometen más los jugadores que manejan mucho el balón, que suelen ser las estrellas.
 
+## Proyección de puntos
+
+Usa la efectividad ofensiva (puntos anotados por 100 posesiones), la defensiva (puntos recibidos por 100 posesiones) y el ritmo (posesiones por partido):
+
+```
+posesiones      = promedio del ritmo de ambos equipos
+puntos de A     = posesiones × (ofensiva de A + defensiva de B) / 2 / 100  ± ventaja de local / 2
+total           = puntos de A + puntos de B
+```
+
+Se calcula de dos formas, siempre con los ratings de la temporada anterior:
+
+- **Por equipo**: ratings del equipo completo. No refleja los traspasos del verano.
+- **Por alineación**: promedio de los ratings en cancha de los 5 jugadores elegidos. Los jugadores con pocas posesiones se acercan al promedio de la liga, porque su rating es muy ruidoso.
+
+Error medio contra el marcador real (2023-24 a 2025-26, cada temporada con los ratings de la anterior):
+
+| Método | Puntos por equipo | Total del partido | Sesgo del total |
+|---|---|---|---|
+| Promedio de la liga (referencia) | 10.3 | 16.0 | −2.0 |
+| Por equipo | 10.0 | 15.7 | −2.0 |
+| Por alineación | 10.0 | 15.7 | −1.7 |
+
+El marcador de un partido de la NBA varía mucho: incluso con los ratings reales de la misma temporada, que no se conocen de antemano,
+el error sería de 9.3 puntos por equipo y 14.8 en el total. El sesgo negativo viene de que la liga anota un poco más cada temporada.
+Para elegir al ganador conviene el porcentaje de victoria (66.5 % de aciertos), no la diferencia del marcador proyectado (60–61 %).
+
 ## Instalación y uso
 
 El repositorio ya incluye los datos (descargados en octubre de 2026) y el modelo entrenado.
@@ -73,10 +101,11 @@ El repositorio ya incluye los datos (descargados en octubre de 2026) y el modelo
    ```bash
    pip install -r requirements.txt
    ```
-2. *(Opcional)* Descarga datos nuevos y reentrena el modelo:
+2. *(Opcional)* Descarga datos nuevos, reentrena el modelo y evalúa la proyección de puntos:
    ```bash
    python data.py
    python model.py
+   python points.py
    ```
 3. Abre la app:
    ```bash
@@ -89,7 +118,8 @@ El repositorio ya incluye los datos (descargados en octubre de 2026) y el modelo
 
 ```
 ├── data.py             # Descarga los datos de nba_api y los guarda en data/
-├── model.py            # Entrena y evalúa el modelo → model.joblib
+├── model.py            # Entrena y evalúa el modelo de victoria → model.joblib
+├── points.py           # Proyección de puntos y su evaluación
 ├── app.py              # App de Streamlit
 ├── roster_moves.csv    # Movimientos de plantilla que la API aún no refleja
 ├── data/               # CSV descargados
@@ -103,6 +133,8 @@ Los datos vienen de [stats.nba.com](https://www.nba.com/stats) a través de [nba
 | Archivo | Contenido |
 |---|---|
 | `player_stats_<temporada>.csv` | Stats por partido de cada jugador (2020-21 a 2025-26) |
+| `player_ratings_<temporada>.csv` | Ratings ofensivo, defensivo y ritmo del equipo con cada jugador en cancha (2020-21 a 2025-26) |
+| `team_ratings_<temporada>.csv` | Ratings ofensivo, defensivo y ritmo de cada equipo (2020-21 a 2025-26) |
 | `player_games_<temporada>.csv` | Qué jugadores participaron en cada partido y cuántos minutos (2021-22 a 2025-26) |
 | `games_<temporada>.csv` | Local, visitante y marcador de cada partido (2021-22 a 2025-26) |
 | `schedule_2026-27.csv` | Calendario de la temporada actual |

@@ -6,6 +6,7 @@ import streamlit as st
 
 from data import CURRENT_SEASON, SEASONS, STAT_COLS, current_rosters, load, prev_season
 from model import MODEL_PATH, contributions, lineup_stats, stats_table, weights
+from points import lineup_ratings, project, ratings_tables
 
 LABELS = {
     "PTS": "Puntos", "REB": "Rebotes", "AST": "Asistencias", "STL": "Robos", "BLK": "Tapones",
@@ -23,6 +24,11 @@ def load_csv(name, season):
 @st.cache_data
 def load_stats_table(season):
     return stats_table(season)
+
+
+@st.cache_data
+def load_ratings(season):
+    return ratings_tables(season)
 
 
 @st.cache_data
@@ -67,6 +73,7 @@ with prediction_tab:
     schedule = load_csv("schedule", CURRENT_SEASON)
     rosters = load_rosters()
     ps, bench = load_stats_table(prev_season(CURRENT_SEASON))
+    team_r, player_r, bench_r, home_edge_pts = load_ratings(prev_season(CURRENT_SEASON))
     model = load_model()
 
     dates = pd.to_datetime(schedule["GAME_DATE"]).dt.date
@@ -115,6 +122,24 @@ with prediction_tab:
         p_home = model.predict_proba(features.to_frame().T)[0, 1]
         away_col.metric(f"Victoria {game.AWAY_TEAM}", f"{1 - p_home:.0%}", border=True)
         home_col.metric(f"Victoria {game.HOME_TEAM}", f"{p_home:.0%}", border=True)
+
+        st.subheader("Marcador proyectado")
+        by_team = project(team_r.loc[game.HOME_TEAM_ID], team_r.loc[game.AWAY_TEAM_ID], home_edge_pts)
+        by_lineup = project(
+            lineup_ratings(home_ids, player_r, bench_r), lineup_ratings(away_ids, player_r, bench_r), home_edge_pts
+        )
+        score = pd.DataFrame(
+            [[away, home, away + home] for home, away in (by_team, by_lineup)],
+            index=["Por equipo", "Por alineación"],
+            columns=[game.AWAY_TEAM, game.HOME_TEAM, "Total"],
+        )
+        st.dataframe(score, column_config={c: st.column_config.NumberColumn(format="%.1f") for c in score.columns})
+        st.caption(
+            "Puntos = posesiones × (ataque propio + defensa rival) / 2 / 100, con los ratings de "
+            f"{prev_season(CURRENT_SEASON)}. «Por equipo» usa la temporada completa de cada equipo y no cambia con la "
+            "alineación; «Por alineación» promedia a los 5 jugadores elegidos. En partidos pasados el error típico "
+            "fue de unos 10 puntos por equipo y 16 en el total."
+        )
 
         st.subheader("¿Por qué este porcentaje?")
         detail = pd.DataFrame({

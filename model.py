@@ -50,15 +50,20 @@ def weights(model):
     return pd.DataFrame({"Peso": coef, "Importancia": importance}).sort_values("Importancia", ascending=False)
 
 
-def build_dataset(season):
-    games = load("games", season)
-    ps, bench = stats_table(prev_season(season))
-    lineups = (
+def game_lineups(season):
+    """Los 5 jugadores con más minutos de cada equipo en cada partido, por (GAME_ID, TEAM_ID)."""
+    return (
         load("player_games", season)
         .sort_values("MIN", ascending=False)
         .groupby(["GAME_ID", "TEAM_ID"])["PLAYER_ID"]
         .apply(lambda ids: list(ids[:5]))
     )
+
+
+def build_dataset(season):
+    games = load("games", season)
+    ps, bench = stats_table(prev_season(season))
+    lineups = game_lineups(season)
     X = pd.DataFrame([
         game_features(lineups[g.GAME_ID, g.HOME_TEAM_ID], lineups[g.GAME_ID, g.AWAY_TEAM_ID], ps, bench)
         for g in games.itertuples()

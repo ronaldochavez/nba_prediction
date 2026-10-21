@@ -6,6 +6,7 @@ import pandas as pd
 from nba_api.stats.endpoints import (
     commonallplayers,
     leaguedashplayerstats,
+    leaguedashteamstats,
     playergamelogs,
     scheduleleaguev2,
 )
@@ -15,6 +16,8 @@ MOVES_PATH = Path(__file__).parent / "roster_moves.csv"
 SEASONS = ["2021-22", "2022-23", "2023-24", "2024-25", "2025-26"]  # temporadas con partidos para entrenar
 CURRENT_SEASON = "2026-27"
 STAT_COLS = ["PTS", "REB", "AST", "STL", "BLK", "TOV", "MIN", "FG_PCT", "FG3_PCT", "PLUS_MINUS"]
+# Puntos anotados / recibidos por 100 posesiones y posesiones por 48 minutos
+RATING_COLS = ["OFF_RATING", "DEF_RATING", "PACE"]
 PAUSE = 1.5  # segundos entre llamadas para no saturar stats.nba.com
 
 
@@ -39,6 +42,29 @@ def player_stats(season):
         per_mode_detailed="PerGame",
     )
     return df[["PLAYER_ID", "PLAYER_NAME", "TEAM_ID", "TEAM_ABBREVIATION", "GP"] + STAT_COLS]
+
+
+def player_ratings(season):
+    """Ratings del equipo mientras cada jugador está en cancha."""
+    df = fetch(
+        leaguedashplayerstats.LeagueDashPlayerStats,
+        season=season,
+        season_type_all_star="Regular Season",
+        measure_type_detailed_defense="Advanced",
+        per_mode_detailed="PerGame",
+    )
+    return df[["PLAYER_ID", "PLAYER_NAME", "GP", "POSS"] + RATING_COLS]
+
+
+def team_ratings(season):
+    df = fetch(
+        leaguedashteamstats.LeagueDashTeamStats,
+        season=season,
+        season_type_all_star="Regular Season",
+        measure_type_detailed_defense="Advanced",
+        per_mode_detailed="PerGame",
+    )
+    return df[["TEAM_ID", "TEAM_NAME", "GP"] + RATING_COLS]
 
 
 def player_games(season):
@@ -133,9 +159,12 @@ def prev_season(season):
 
 def main():
     DATA_DIR.mkdir(exist_ok=True)
-    # Cada partido se predice con stats de la temporada anterior, así que también hace falta 2023-24
+    # Cada partido se predice con stats de la temporada anterior, así que también hace falta
+    # la temporada previa a la primera
     for season in [prev_season(SEASONS[0])] + SEASONS:
         save("player_stats", player_stats, season)
+        save("player_ratings", player_ratings, season)
+        save("team_ratings", team_ratings, season)
     for season in SEASONS:
         save("player_games", player_games, season)
         save("games", games, season)
