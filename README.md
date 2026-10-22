@@ -76,10 +76,12 @@ Que las pérdidas sumen a favor no es un error: las cometen más los jugadores q
 Usa la efectividad ofensiva (puntos anotados por 100 posesiones), la defensiva (puntos recibidos por 100 posesiones) y el ritmo (posesiones por partido):
 
 ```
-posesiones      = promedio del ritmo de ambos equipos
-puntos de A     = posesiones × (ofensiva de A + defensiva de B) / 2 / 100  ± ventaja de local / 2
-total           = puntos de A + puntos de B
+puntos de A = ((ataque A × ritmo A) / 100 + (defensa B × ritmo B) / 100) / 2  ± ventaja de local / 2
+total       = puntos de A + puntos de B
 ```
+
+Es decir, el promedio entre lo que A suele anotar por partido y lo que B suele recibir. Por ejemplo, MIL @ WAS con los ratings de 2025-26:
+MIL = (112.2 × 98.3 / 100 + 121.5 × 102.5 / 100) / 2 = 117.4 puntos, antes de la ventaja de local.
 
 Se calcula de dos formas, siempre con los ratings de la temporada anterior:
 

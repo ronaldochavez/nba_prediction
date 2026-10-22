@@ -202,8 +202,9 @@ with prediction_tab:
         )
         st.dataframe(score, column_config={c: st.column_config.NumberColumn(format="%.1f") for c in score.columns})
         st.caption(
-            "Puntos = posesiones × (ataque propio + defensa rival) / 2 / 100, con los ratings de "
-            f"{prev_season(CURRENT_SEASON)}. «Por equipo» usa la temporada completa de cada equipo y no cambia con la "
+            "Puntos = ((ataque propio × ritmo propio) / 100 + (defensa rival × ritmo rival) / 100) / 2 ± ventaja de "
+            f"local, con los ratings de {prev_season(CURRENT_SEASON)}. "
+            "«Por equipo» usa la temporada completa de cada equipo y no cambia con la "
             "alineación; «Por alineación» promedia a los 5 jugadores elegidos. En partidos pasados el error típico "
             "fue de unos 10 puntos por equipo y 16 en el total."
         )

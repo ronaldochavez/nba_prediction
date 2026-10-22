@@ -1,9 +1,9 @@
 """Proyecta los puntos de cada equipo y el total del partido con efectividad × posesiones.
 
-Puntos de A contra B = posesiones × (rating ofensivo de A + rating defensivo de B) / 2 / 100,
-con posesiones = promedio del ritmo (PACE) de ambos. Al local se le suma la mitad del margen
-medio de los locales y al visitante se le resta. Se calcula de dos formas, siempre con los
-ratings de la temporada anterior:
+Puntos de A contra B = ((ataque A × ritmo A) / 100 + (defensa B × ritmo B) / 100) / 2,
+es decir, el promedio entre lo que A suele anotar por partido y lo que B suele recibir.
+Al local se le suma la mitad del margen medio de los locales y al visitante se le resta.
+Se calcula de dos formas, siempre con los ratings de la temporada anterior:
 - por equipo: ratings del equipo completo;
 - por alineación: promedio de los ratings en cancha de los 5 jugadores.
 """
@@ -47,10 +47,10 @@ def lineup_ratings(player_ids, players, bench):
 
 def project(home, away, home_edge):
     """Puntos proyectados de local y visitante a partir de sus ratings."""
-    poss = (home["PACE"] + away["PACE"]) / 2
-    home_pts = poss * (home["OFF_RATING"] + away["DEF_RATING"]) / 200 + home_edge / 2
-    away_pts = poss * (away["OFF_RATING"] + home["DEF_RATING"]) / 200 - home_edge / 2
-    return home_pts, away_pts
+    def points(attack, defense):
+        return (attack["OFF_RATING"] * attack["PACE"] / 100 + defense["DEF_RATING"] * defense["PACE"] / 100) / 2
+
+    return points(home, away) + home_edge / 2, points(away, home) - home_edge / 2
 
 
 def season_projections(season):
