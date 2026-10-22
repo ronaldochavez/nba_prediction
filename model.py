@@ -21,10 +21,14 @@ TEST_SEASONS = 3  # temporadas finales que se usan para evaluar
 
 
 def stats_table(season):
-    """Stats por jugador de una temporada y el perfil de banca para quien no tiene stats."""
+    """Stats por jugador de una temporada y el perfil de banca para quien no tiene stats.
+
+    Si un jugador no jugó esa temporada (p. ej. por una lesión), se usan sus stats de la anterior.
+    """
     ps = load("player_stats", season).set_index("PLAYER_ID")[STAT_COLS]
     bench = ps[ps["MIN"] < BENCH_MIN].mean()
-    return ps, bench
+    older = load("player_stats", prev_season(season)).set_index("PLAYER_ID")[STAT_COLS]
+    return ps.combine_first(older), bench
 
 
 def lineup_stats(player_ids, ps, bench):

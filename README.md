@@ -12,12 +12,16 @@ Usa una regresión logística entrenada con las stats individuales de temporadas
 
 ## Qué hace
 
-- **Jugadores**: compara las stats por partido de un jugador entre 2024-25 y 2025-26, con la diferencia entre ambas y una gráfica.
+- **Jugadores**: compara las stats por partido de un jugador entre 2024-25 y 2025-26, y muestra su **forma reciente**:
+  promedio de los últimos 5 y 10 partidos (pretemporada, temporada regular y playoffs), la tendencia frente a su promedio
+  de la temporada pasada y el detalle partido a partido.
 - **Predicción**: eliges una fecha y un partido del calendario 2026-27, armas la alineación de cada equipo y ves el porcentaje de victoria,
   los puntos proyectados de cada equipo y el total del partido. Por defecto se sugieren los 5 jugadores con más minutos en 2025-26.
   Debajo se muestra qué stats inclinan la balanza hacia cada equipo.
 
 ![Pestaña Jugadores](docs/jugadores.png)
+
+![Forma reciente](docs/forma.png)
 
 ## Resultados
 
@@ -25,10 +29,10 @@ Cada temporada se predice con un modelo entrenado solo con las temporadas anteri
 
 | Temporada de prueba | Entrenamiento | Modelo | Siempre gana el local |
 |---|---|---|---|
-| 2023-24 | 2021-22 a 2022-23 | 66.5 % | 54.3 % |
+| 2023-24 | 2021-22 a 2022-23 | 65.9 % | 54.3 % |
 | 2024-25 | 2021-22 a 2023-24 | 66.7 % | 54.4 % |
-| 2025-26 | 2021-22 a 2024-25 | 66.3 % | 55.4 % |
-| **Promedio** | | **66.5 %** | 54.7 % |
+| 2025-26 | 2021-22 a 2024-25 | 65.9 % | 55.4 % |
+| **Promedio** | | **66.2 %** | 54.7 % |
 
 El modelo final, el que usa la app para 2026-27, se entrena con los 6,150 partidos de 2021-22 a 2025-26.
 
@@ -46,21 +50,22 @@ El modelo final, el que usa la app para 2026-27, se entrena con los 6,150 partid
    P(gana el local) = 1 / (1 + e^(−z))
    ```
 
-5. **Jugadores sin stats** (novatos o quienes no jugaron la temporada anterior) cuentan como un jugador de banca promedio (menos de 15 minutos por partido).
+5. **Jugadores que no jugaron la temporada anterior** (por ejemplo, por una lesión) usan sus stats de la temporada previa a esa.
+   Los que no tienen ninguna de las dos (novatos) cuentan como un jugador de banca promedio (menos de 15 minutos por partido).
 
 ### Cuánto pesa cada stat
 
 | Stat | Peso | Importancia |
 |---|---|---|
-| +/- | +0.27 | 25 % |
-| FG% | +0.17 | 16 % |
+| +/- | +0.27 | 26 % |
 | Puntos | +0.17 | 16 % |
+| FG% | +0.17 | 16 % |
 | Robos | +0.16 | 15 % |
-| Asistencias | +0.09 | 8 % |
-| Tapones | +0.06 | 6 % |
-| Rebotes | +0.06 | 6 % |
-| Minutos | +0.04 | 3 % |
-| Pérdidas | +0.03 | 3 % |
+| Asistencias | +0.09 | 9 % |
+| Tapones | +0.07 | 6 % |
+| Rebotes | +0.06 | 5 % |
+| Minutos | +0.04 | 4 % |
+| Pérdidas | +0.03 | 2 % |
 | 3P% | +0.02 | 2 % |
 
 El peso es el cambio en `z` por cada desviación estándar de diferencia entre las alineaciones; la ventaja de local vale +0.24.
@@ -91,7 +96,7 @@ Error medio contra el marcador real (2023-24 a 2025-26, cada temporada con los r
 
 El marcador de un partido de la NBA varía mucho: incluso con los ratings reales de la misma temporada, que no se conocen de antemano,
 el error sería de 9.3 puntos por equipo y 14.8 en el total. El sesgo negativo viene de que la liga anota un poco más cada temporada.
-Para elegir al ganador conviene el porcentaje de victoria (66.5 % de aciertos), no la diferencia del marcador proyectado (60–61 %).
+Para elegir al ganador conviene el porcentaje de victoria (66.2 % de aciertos), no la diferencia del marcador proyectado (60–61 %).
 
 ## Instalación y uso
 
@@ -112,7 +117,8 @@ El repositorio ya incluye los datos (descargados en octubre de 2026) y el modelo
    streamlit run app.py
    ```
 
-`data.py` no vuelve a descargar los archivos que ya existen. Para actualizar uno (por ejemplo, las plantillas después de los cortes de pretemporada), bórralo de `data/` y vuelve a ejecutar `python data.py`.
+`data.py` vuelve a descargar siempre lo de la temporada actual (plantillas, calendario y partidos recientes), que cambia a diario;
+los archivos históricos solo se bajan una vez. Si la app está abierta, reiníciala para que lea los datos nuevos.
 
 ## Estructura
 
@@ -132,9 +138,10 @@ Los datos vienen de [stats.nba.com](https://www.nba.com/stats) a través de [nba
 
 | Archivo | Contenido |
 |---|---|
-| `player_stats_<temporada>.csv` | Stats por partido de cada jugador (2020-21 a 2025-26) |
-| `player_ratings_<temporada>.csv` | Ratings ofensivo, defensivo y ritmo del equipo con cada jugador en cancha (2020-21 a 2025-26) |
-| `team_ratings_<temporada>.csv` | Ratings ofensivo, defensivo y ritmo de cada equipo (2020-21 a 2025-26) |
+| `player_stats_<temporada>.csv` | Stats por partido de cada jugador (2019-20 a 2025-26) |
+| `player_ratings_<temporada>.csv` | Ratings ofensivo, defensivo y ritmo del equipo con cada jugador en cancha (2019-20 a 2025-26) |
+| `team_ratings_<temporada>.csv` | Ratings ofensivo, defensivo y ritmo de cada equipo (2019-20 a 2025-26) |
+| `game_logs_<temporada>.csv` | Box score de cada jugador en cada partido, con pretemporada y playoffs (2025-26 y 2026-27) |
 | `player_games_<temporada>.csv` | Qué jugadores participaron en cada partido y cuántos minutos (2021-22 a 2025-26) |
 | `games_<temporada>.csv` | Local, visitante y marcador de cada partido (2021-22 a 2025-26) |
 | `schedule_2026-27.csv` | Calendario de la temporada actual |

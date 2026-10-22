@@ -10,6 +10,7 @@ from nba_api.stats.endpoints import (
     playergamelogs,
     scheduleleaguev2,
 )
+from nba_api.stats.static import teams as nba_teams
 
 DATA_DIR = Path(__file__).parent / "data"
 MOVES_PATH = Path(__file__).parent / "roster_moves.csv"
@@ -77,6 +78,22 @@ def player_games(season):
     return df[["GAME_ID", "GAME_DATE", "TEAM_ID", "TEAM_ABBREVIATION", "PLAYER_ID", "PLAYER_NAME", "MIN"]]
 
 
+def game_logs(season):
+    """Box score de cada jugador en cada partido: pretemporada, temporada regular y playoffs."""
+    frames = [
+        fetch(playergamelogs.PlayerGameLogs, season_nullable=season, season_type_nullable=season_type)
+        .assign(SEASON_TYPE=season_type)
+        for season_type in ["Pre Season", "Regular Season", "Playoffs"]
+    ]
+    df = pd.concat(frames, ignore_index=True)
+    # En pretemporada también juegan equipos internacionales: solo se dejan los de la NBA
+    df = df[df["TEAM_ID"].isin({t["id"] for t in nba_teams.get_teams()})]
+    return df[[
+        "PLAYER_ID", "PLAYER_NAME", "TEAM_ABBREVIATION", "GAME_ID", "GAME_DATE", "MATCHUP", "WL", "SEASON_TYPE",
+        "MIN", "PTS", "REB", "AST", "STL", "BLK", "TOV", "FGM", "FGA", "FG3M", "FG3A", "PLUS_MINUS",
+    ]]
+
+
 def season_games(season):
     """Partidos de temporada regular según el calendario oficial.
 
@@ -113,9 +130,10 @@ def rosters(season):
     return df[["PLAYER_ID", "PLAYER_NAME", "TEAM_ID", "TEAM_ABBREVIATION"]]
 
 
-def save(name, download, season):
+def save(name, download, season, refresh=False):
+    """Descarga y guarda un CSV; si ya existe solo lo vuelve a bajar con refresh=True."""
     path = DATA_DIR / f"{name}_{season}.csv"
-    if path.exists():
+    if path.exists() and not refresh:
         print(f"{path.name}: ya existe, se omite")
         return
     df = download(season)
@@ -140,7 +158,7 @@ def current_rosters():
     team_of = dict(zip(rosters["PLAYER_ID"], rosters["TEAM_ABBREVIATION"]))
     team_ids = dict(zip(rosters["TEAM_ABBREVIATION"], rosters["TEAM_ID"]))
 
-    pending = moves[[team_of.get(pid, "") == team for pid, team in zip(moves["PLAYER_ID"], moves["FROM_TEAM"])]]
+    pending = moves[moves["PLAYER_ID"].map(team_of).fillna("") == moves["FROM_TEAM"]]
     arrivals = pending[pending["TO_TEAM"] != ""]
     rosters = rosters[~rosters["PLAYER_ID"].isin(pending["PLAYER_ID"])]
     return pd.concat([rosters, pd.DataFrame({
@@ -159,17 +177,21 @@ def prev_season(season):
 
 def main():
     DATA_DIR.mkdir(exist_ok=True)
-    # Cada partido se predice con stats de la temporada anterior, así que también hace falta
-    # la temporada previa a la primera
-    for season in [prev_season(SEASONS[0])] + SEASONS:
+    # Cada partido se predice con stats de la temporada anterior (o la previa, si el jugador
+    # no jugó esa), así que hacen falta las dos temporadas previas a la primera
+    first = prev_season(SEASONS[0])
+    for season in [prev_season(first), first] + SEASONS:
         save("player_stats", player_stats, season)
         save("player_ratings", player_ratings, season)
         save("team_ratings", team_ratings, season)
     for season in SEASONS:
         save("player_games", player_games, season)
         save("games", games, season)
-    save("schedule", schedule, CURRENT_SEASON)
-    save("rosters", rosters, CURRENT_SEASON)
+    save("game_logs", game_logs, SEASONS[-1])
+    # Lo de la temporada actual cambia a diario: se vuelve a bajar siempre
+    save("game_logs", game_logs, CURRENT_SEASON, refresh=True)
+    save("schedule", schedule, CURRENT_SEASON, refresh=True)
+    save("rosters", rosters, CURRENT_SEASON, refresh=True)
 
 
 if __name__ == "__main__":

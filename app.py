@@ -12,6 +12,7 @@ LABELS = {
     "PTS": "Puntos", "REB": "Rebotes", "AST": "Asistencias", "STL": "Robos", "BLK": "Tapones",
     "TOV": "Pérdidas", "MIN": "Minutos", "FG_PCT": "FG%", "FG3_PCT": "3P%", "PLUS_MINUS": "+/-",
 }
+GAME_TYPES = {"Pre Season": "Pretemporada", "Regular Season": "Temporada regular", "Playoffs": "Playoffs"}
 
 st.set_page_config(page_title="Predicción NBA", page_icon=":material/sports_basketball:")
 
@@ -41,13 +42,23 @@ def load_model():
     return joblib.load(MODEL_PATH)
 
 
+def averages(games):
+    """Promedio por partido; FG% y 3P% salen del total de tiros, no de promediar porcentajes."""
+    avg = games[[c for c in STAT_COLS if not c.endswith("_PCT")]].mean()
+    fga, fg3a = games["FGA"].sum(), games["FG3A"].sum()
+    avg["FG_PCT"] = games["FGM"].sum() / fga if fga else None
+    avg["FG3_PCT"] = games["FG3M"].sum() / fg3a if fg3a else None
+    return avg[STAT_COLS].astype(float)
+
+
 st.title("Predicción NBA")
 players_tab, prediction_tab = st.tabs(["Jugadores", "Predicción"])
 
 with players_tab:
     old, new = SEASONS[-2:]
     stats = {s: load_csv("player_stats", s).set_index("PLAYER_ID") for s in (old, new)}
-    names = pd.concat([stats[old]["PLAYER_NAME"], stats[new]["PLAYER_NAME"]])
+    logs = pd.concat([load_csv("game_logs", new), load_csv("game_logs", CURRENT_SEASON)], ignore_index=True)
+    names = pd.concat([stats[old]["PLAYER_NAME"], stats[new]["PLAYER_NAME"], logs.set_index("PLAYER_ID")["PLAYER_NAME"]])
     names = names[~names.index.duplicated(keep="last")].sort_values()
     top_scorer = stats[new]["PTS"].idxmax()
     player_id = st.selectbox("Jugador", names.index, index=names.index.get_loc(top_scorer), format_func=names.get)
@@ -62,17 +73,65 @@ with players_tab:
     table.loc[["FG_PCT", "FG3_PCT"]] *= 100
     table["Diferencia"] = table[new] - table[old]
     table.index = table.index.map(LABELS)
-    st.dataframe(table, column_config={
-        old: st.column_config.NumberColumn(format="%.1f"),
-        new: st.column_config.NumberColumn(format="%.1f"),
-        "Diferencia": st.column_config.NumberColumn(format="%+.1f"),
-    })
-    st.bar_chart(table[[old, new]], horizontal=True, sort=False, stack=False)
+    if table[[old, new]].notna().any().any():
+        st.dataframe(table, column_config={
+            old: st.column_config.NumberColumn(format="%.1f"),
+            new: st.column_config.NumberColumn(format="%.1f"),
+            "Diferencia": st.column_config.NumberColumn(format="%+.1f"),
+        })
+        st.bar_chart(table[[old, new]], horizontal=True, sort=False, stack=False)
+
+    st.subheader("Forma reciente")
+    recent = logs[logs["PLAYER_ID"] == player_id].sort_values("GAME_DATE", ascending=False).head(10)
+    if recent.empty:
+        st.info(f"No tiene partidos desde {new}.")
+    else:
+        short = f"Últimos {min(5, len(recent))}"  # puede haber menos partidos que 5 o 10
+        form = pd.DataFrame({short: averages(recent.head(5))})
+        if len(recent) > 5:
+            form[f"Últimos {len(recent)}"] = averages(recent)
+        baseline = next((s for s in (new, old) if pd.notna(rows[s].GP)), None)
+        if baseline:
+            form[f"Promedio {baseline}"] = rows[baseline][STAT_COLS].astype(float)
+            form["Tendencia"] = form[short] - form[f"Promedio {baseline}"]
+        form.loc[["FG_PCT", "FG3_PCT"]] *= 100
+        form.index = form.index.map(LABELS)
+        st.dataframe(form, column_config={
+            **{c: st.column_config.NumberColumn(format="%.1f") for c in form.columns},
+            "Tendencia": st.column_config.NumberColumn(format="%+.1f"),
+        })
+
+        games = recent.sort_values("GAME_DATE").assign(
+            Fecha=lambda d: pd.to_datetime(d["GAME_DATE"]).dt.strftime("%d/%m/%y"),
+            Tipo=lambda d: d["SEASON_TYPE"].map(GAME_TYPES),
+        )
+        st.bar_chart(games.rename(columns={"PTS": "Puntos"}), x="Fecha", y="Puntos", color="Tipo", sort=False)
+        st.caption(
+            f"Incluye pretemporada, temporada regular y playoffs desde {new}. "
+            + (f"Tendencia = {short.lower()} − promedio de {baseline}. " if baseline else "")
+            + "En pretemporada los titulares suelen jugar menos minutos, así que sus números bajan."
+        )
+
+        with st.expander("Partido a partido"):
+            detail = games.assign(
+                Resultado=games["WL"].map({"W": "G", "L": "P"}),
+                FG=games["FGM"].astype(str) + "-" + games["FGA"].astype(str),
+                **{"3P": games["FG3M"].astype(str) + "-" + games["FG3A"].astype(str)},
+            ).rename(columns={"MATCHUP": "Partido", **LABELS})
+            st.dataframe(
+                detail.iloc[::-1][[
+                    "Fecha", "Partido", "Tipo", "Resultado", "Minutos", "Puntos", "Rebotes", "Asistencias",
+                    "Robos", "Tapones", "Pérdidas", "FG", "3P", "+/-",
+                ]],
+                hide_index=True,
+                column_config={"Minutos": st.column_config.NumberColumn(format="%.0f")},
+            )
 
 with prediction_tab:
     schedule = load_csv("schedule", CURRENT_SEASON)
     rosters = load_rosters()
     ps, bench = load_stats_table(prev_season(CURRENT_SEASON))
+    latest_ids = set(load_csv("player_stats", prev_season(CURRENT_SEASON))["PLAYER_ID"])
     team_r, player_r, bench_r, home_edge_pts = load_ratings(prev_season(CURRENT_SEASON))
     model = load_model()
 
@@ -99,7 +158,15 @@ with prediction_tab:
         roster = rosters[rosters["TEAM_ID"] == team_id].copy()
         roster["MIN"] = roster["PLAYER_ID"].map(ps["MIN"])
         roster = roster.sort_values("MIN", ascending=False)
-        labels = dict(zip(roster["PLAYER_ID"], roster["PLAYER_NAME"] + roster["MIN"].isna().map({True: " (sin stats)", False: ""})))
+
+        def tag(player_id, minutes):
+            if pd.isna(minutes):
+                return " (sin stats)"
+            if player_id not in latest_ids:
+                return f" (stats {prev_season(prev_season(CURRENT_SEASON))})"
+            return ""
+
+        labels = {pid: name + tag(pid, m) for pid, name, m in zip(roster["PLAYER_ID"], roster["PLAYER_NAME"], roster["MIN"])}
         return container.multiselect(
             f"{side}: {team}",
             labels,
@@ -175,7 +242,8 @@ with prediction_tab:
 
     st.caption(
         f"Según las stats de {prev_season(CURRENT_SEASON)}. "
-        "Los jugadores sin stats cuentan como un jugador de banca promedio."
+        f"Quien no jugó esa temporada usa sus stats de {prev_season(prev_season(CURRENT_SEASON))}; "
+        "los jugadores sin stats cuentan como un jugador de banca promedio."
     )
 
     with st.expander("Cuánto pesa cada stat en el modelo"):

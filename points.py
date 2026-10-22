@@ -15,17 +15,26 @@ from model import BENCH_MIN, TEST_SEASONS, game_lineups
 SHRINK_POSS = 500  # posesiones de promedio de liga que se suman a las de cada jugador
 
 
+def player_ratings(season):
+    """Ratings en cancha de cada jugador, mezclados con el promedio de la liga según sus posesiones.
+
+    Con pocas posesiones el rating de un jugador es casi puro ruido.
+    """
+    league = load("team_ratings", season)[RATING_COLS].mean()
+    players = load("player_ratings", season).set_index("PLAYER_ID")
+    return (players[RATING_COLS].mul(players["POSS"], axis=0) + league * SHRINK_POSS).div(
+        players["POSS"] + SHRINK_POSS, axis=0
+    )
+
+
 def ratings_tables(season):
     """Ratings de equipos, de jugadores y de banca de una temporada, y el margen medio del local."""
     teams = load("team_ratings", season).set_index("TEAM_ID")[RATING_COLS]
-    league = teams.mean()
-    players = load("player_ratings", season).set_index("PLAYER_ID")
-    # Con pocas posesiones el rating de un jugador es casi puro ruido: se mezcla con el de la liga
-    players = (players[RATING_COLS].mul(players["POSS"], axis=0) + league * SHRINK_POSS).div(
-        players["POSS"] + SHRINK_POSS, axis=0
-    )
+    players = player_ratings(season)
     stats = load("player_stats", season).set_index("PLAYER_ID")
     bench = players.reindex(stats.index[stats["MIN"] < BENCH_MIN]).mean()
+    # Si un jugador no jugó esa temporada (p. ej. por una lesión), se usan sus ratings de la anterior
+    players = players.combine_first(player_ratings(prev_season(season)))
     games = load("games", season)
     home_edge = (games["HOME_PTS"] - games["AWAY_PTS"]).mean()
     return teams, players, bench, home_edge
