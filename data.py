@@ -68,16 +68,6 @@ def team_ratings(season):
     return df[["TEAM_ID", "TEAM_NAME", "GP"] + RATING_COLS]
 
 
-def player_games(season):
-    """Una fila por jugador y partido: quién jugó y cuántos minutos."""
-    df = fetch(
-        playergamelogs.PlayerGameLogs,
-        season_nullable=season,
-        season_type_nullable="Regular Season",
-    )
-    return df[["GAME_ID", "GAME_DATE", "TEAM_ID", "TEAM_ABBREVIATION", "PLAYER_ID", "PLAYER_NAME", "MIN"]]
-
-
 def game_logs(season):
     """Box score de cada jugador en cada partido: pretemporada, temporada regular y playoffs."""
     frames = [
@@ -89,8 +79,9 @@ def game_logs(season):
     # En pretemporada también juegan equipos internacionales: solo se dejan los de la NBA
     df = df[df["TEAM_ID"].isin({t["id"] for t in nba_teams.get_teams()})]
     return df[[
-        "PLAYER_ID", "PLAYER_NAME", "TEAM_ABBREVIATION", "GAME_ID", "GAME_DATE", "MATCHUP", "WL", "SEASON_TYPE",
-        "MIN", "PTS", "REB", "AST", "STL", "BLK", "TOV", "FGM", "FGA", "FG3M", "FG3A", "PLUS_MINUS",
+        "PLAYER_ID", "PLAYER_NAME", "TEAM_ID", "TEAM_ABBREVIATION", "GAME_ID", "GAME_DATE", "MATCHUP", "WL",
+        "SEASON_TYPE", "MIN", "PTS", "REB", "AST", "STL", "BLK", "TOV", "FGM", "FGA", "FG3M", "FG3A", "FTA", "OREB",
+        "PLUS_MINUS",
     ]]
 
 
@@ -111,17 +102,20 @@ def season_games(season):
         "AWAY_TEAM": df["awayTeam_teamTricode"],
         "HOME_PTS": df["homeTeam_score"],
         "AWAY_PTS": df["awayTeam_score"],
+        "STATUS": df["gameStatus"],  # 3 = terminado
     })
 
 
 def games(season):
+    """Partidos ya jugados con su resultado."""
     df = season_games(season)
+    df = df[df["STATUS"] == 3].drop(columns="STATUS")
     df["HOME_WIN"] = (df["HOME_PTS"] > df["AWAY_PTS"]).astype(int)
     return df
 
 
 def schedule(season):
-    return season_games(season).drop(columns=["HOME_PTS", "AWAY_PTS"])
+    return season_games(season).drop(columns=["HOME_PTS", "AWAY_PTS", "STATUS"])
 
 
 def rosters(season):
@@ -185,13 +179,14 @@ def main():
         save("player_ratings", player_ratings, season)
         save("team_ratings", team_ratings, season)
     for season in SEASONS:
-        save("player_games", player_games, season)
+        save("game_logs", game_logs, season)
         save("games", games, season)
-    save("game_logs", game_logs, SEASONS[-1])
     # Lo de la temporada actual cambia a diario: se vuelve a bajar siempre
-    save("game_logs", game_logs, CURRENT_SEASON, refresh=True)
-    save("schedule", schedule, CURRENT_SEASON, refresh=True)
-    save("rosters", rosters, CURRENT_SEASON, refresh=True)
+    for name, download in [
+        ("game_logs", game_logs), ("games", games), ("player_ratings", player_ratings),
+        ("schedule", schedule), ("rosters", rosters),
+    ]:
+        save(name, download, CURRENT_SEASON, refresh=True)
 
 
 if __name__ == "__main__":
