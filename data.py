@@ -42,6 +42,7 @@ def player_stats(season):
         season_type_all_star="Regular Season",
         per_mode_detailed="PerGame",
     )
+    df = one_row_per_player(df, "GP")
     return df[["PLAYER_ID", "PLAYER_NAME", "TEAM_ID", "TEAM_ABBREVIATION", "GP"] + STAT_COLS]
 
 
@@ -54,7 +55,14 @@ def player_ratings(season):
         measure_type_detailed_defense="Advanced",
         per_mode_detailed="PerGame",
     )
+    df = one_row_per_player(df, "POSS")
     return df[["PLAYER_ID", "PLAYER_NAME", "GP", "POSS"] + RATING_COLS]
+
+
+def one_row_per_player(df, by):
+    """A veces la API repite a un jugador con el nombre escrito distinto (p. ej. «Moussa Cisse» y
+    «Moussa Cissé»): se deja la fila con más partidos o posesiones."""
+    return df.sort_values(by).drop_duplicates("PLAYER_ID", keep="last").sort_index()
 
 
 def team_ratings(season):
