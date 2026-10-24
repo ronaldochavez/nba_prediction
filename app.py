@@ -19,8 +19,11 @@ LABELS = {
 COUNTS = [c for c in STAT_COLS if not c.endswith("_PCT") and c != "MIN"]  # stats que se escalan a 36 minutos
 GAME_TYPES = {"Pre Season": "Pretemporada", "Regular Season": "Temporada regular", "Playoffs": "Playoffs"}
 LAST, OLDER = prev_season(CURRENT_SEASON), prev_season(prev_season(CURRENT_SEASON))
+# Stats del cara a cara, con nombres cortos para que las dos tablas entren lado a lado
+FACE_COLS = {"MIN": "Min", "PTS": "Pts", "REB": "Reb", "AST": "Ast", "STL": "Rob", "PLUS_MINUS": "+/-", "FG_PCT": "FG%"}
+FORM_VIEWS = {"Últimos 5": 5, "Últimos 10": 10}
 
-st.set_page_config(page_title="Predicción NBA", page_icon=":material/sports_basketball:")
+st.set_page_config(page_title="Predicción NBA", page_icon=":material/sports_basketball:", layout="wide")
 
 
 @st.cache_data
@@ -69,13 +72,61 @@ def averages(games, per36=False):
     return avg[STAT_COLS].astype(float)
 
 
+def scale_36(avg):
+    """Pasa un promedio por partido a por 36 minutos."""
+    avg = avg.copy()
+    avg[COUNTS] = avg[COUNTS] / avg["MIN"] * 36
+    return avg
+
+
+old, new = SEASONS[-2:]
+stats = {s: load_csv("player_stats", s).set_index("PLAYER_ID") for s in (old, new)}
+logs = pd.concat([load_csv("game_logs", new), load_csv("game_logs", CURRENT_SEASON)], ignore_index=True)
+
+
+def recent_games(player_id, n):
+    """Últimos n partidos del jugador (pretemporada, temporada regular y playoffs) desde la temporada pasada."""
+    return logs[logs["PLAYER_ID"] == player_id].sort_values("GAME_DATE", ascending=False).head(n)
+
+
+def season_average(player_id):
+    """Promedio de la última temporada que jugó (2025-26, o 2024-25 si se perdió esa)."""
+    for s in (new, old):
+        if player_id in stats[s].index:
+            return stats[s].loc[player_id, STAT_COLS].astype(float)
+    return pd.Series(np.nan, index=STAT_COLS)
+
+
+def face_to_face(player_ids, labels, view, per36):
+    """Stats clave de cada jugador de una alineación en la vista elegida, más el promedio de los 5.
+
+    También devuelve los jugadores que tienen menos partidos que los que pide la vista.
+    """
+    rows, short_on_games = [], []
+    for pid in player_ids:
+        base = season_average(pid)
+        base = scale_36(base) if per36 else base
+        row = {"Jugador": labels[pid]}
+        if view in FORM_VIEWS:
+            games = recent_games(pid, FORM_VIEWS[view])
+            avg = averages(games, per36) if len(games) else pd.Series(np.nan, index=STAT_COLS)
+            if len(games) < FORM_VIEWS[view]:
+                short_on_games.append(f"{labels[pid]}: {len(games)} de {FORM_VIEWS[view]}")
+            row.update(avg[list(FACE_COLS)])
+            row["Tend."] = avg["PTS"] - base["PTS"]
+        else:
+            row.update(base[list(FACE_COLS)])
+        rows.append(row)
+    table = pd.DataFrame(rows).set_index("Jugador")
+    table.loc["Promedio"] = table.mean()
+    table["FG_PCT"] *= 100
+    return table.rename(columns=FACE_COLS), short_on_games
+
+
 st.title("Predicción NBA")
 players_tab, prediction_tab, tracking_tab = st.tabs(["Jugadores", "Predicción", "Seguimiento"])
 
 with players_tab:
-    old, new = SEASONS[-2:]
-    stats = {s: load_csv("player_stats", s).set_index("PLAYER_ID") for s in (old, new)}
-    logs = pd.concat([load_csv("game_logs", new), load_csv("game_logs", CURRENT_SEASON)], ignore_index=True)
     names = pd.concat([stats[old]["PLAYER_NAME"], stats[new]["PLAYER_NAME"], logs.set_index("PLAYER_ID")["PLAYER_NAME"]])
     names = names[~names.index.duplicated(keep="last")].sort_values()
     top_scorer = stats[new]["PTS"].idxmax()
@@ -92,18 +143,21 @@ with players_tab:
     table["Diferencia"] = table[new] - table[old]
     table.index = table.index.map(LABELS)
     if table[[old, new]].notna().any().any():
-        st.dataframe(table, column_config={
+        table_col, chart_col = st.columns(2)
+        table_col.dataframe(table, column_config={
             old: st.column_config.NumberColumn(format="%.1f"),
             new: st.column_config.NumberColumn(format="%.1f"),
             "Diferencia": st.column_config.NumberColumn(format="%+.1f"),
         })
-        st.bar_chart(table[[old, new]], horizontal=True, sort=False, stack=False)
+        chart_col.bar_chart(table[[old, new]], horizontal=True, sort=False, stack=False)
 
     st.subheader("Forma reciente")
     per36 = st.toggle(
-        "Por 36 minutos", help="Escala las stats a 36 minutos para comparar sin el efecto de jugar más o menos minutos"
+        "Por 36 minutos",
+        help="Escala las stats a 36 minutos para comparar sin el efecto de jugar más o menos minutos",
+        key="players_per36",
     )
-    recent = logs[logs["PLAYER_ID"] == player_id].sort_values("GAME_DATE", ascending=False).head(10)
+    recent = recent_games(player_id, 10)
     if recent.empty:
         st.info(f"No tiene partidos desde {new}.")
     else:
@@ -114,13 +168,12 @@ with players_tab:
         baseline = next((s for s in (new, old) if pd.notna(rows[s].GP)), None)
         if baseline:
             base = rows[baseline][STAT_COLS].astype(float)
-            if per36:
-                base[COUNTS] = base[COUNTS] / base["MIN"] * 36
-            form[f"Promedio {baseline}"] = base
+            form[f"Promedio {baseline}"] = scale_36(base) if per36 else base
             form["Tendencia"] = form[short] - form[f"Promedio {baseline}"]
         form.loc[["FG_PCT", "FG3_PCT"]] *= 100
         form.index = form.index.map(LABELS)
-        st.dataframe(form, column_config={
+        form_col, form_chart_col = st.columns(2)
+        form_col.dataframe(form, column_config={
             **{c: st.column_config.NumberColumn(format="%.1f") for c in form.columns},
             "Tendencia": st.column_config.NumberColumn(format="%+.1f"),
         })
@@ -131,7 +184,7 @@ with players_tab:
         )
         points_label = "Puntos por 36 min" if per36 else "Puntos"
         chart = games.assign(**{points_label: games["PTS"] * 36 / games["MIN"].replace(0, np.nan) if per36 else games["PTS"]})
-        st.bar_chart(chart, x="Fecha", y=points_label, color="Tipo", sort=False)
+        form_chart_col.bar_chart(chart, x="Fecha", y=points_label, color="Tipo", sort=False)
         st.caption(
             f"Incluye pretemporada, temporada regular y playoffs desde {new}. "
             + (f"Tendencia = {short.lower()} − promedio de {baseline}. " if baseline else "")
@@ -215,7 +268,8 @@ with prediction_tab:
 
     dates = pd.to_datetime(schedule["GAME_DATE"]).dt.date
     upcoming = dates[dates >= dt.date.today()]
-    day = st.date_input(
+    date_col, game_col = st.columns([1, 2])
+    day = date_col.date_input(
         "Fecha",
         value=upcoming.min() if len(upcoming) else dates.min(),
         min_value=dates.min(),
@@ -228,7 +282,7 @@ with prediction_tab:
         st.stop()
 
     matchups = {gid: f"{g.AWAY_TEAM} @ {g.HOME_TEAM}" for gid, g in day_games.iterrows()}
-    game_id = st.selectbox("Partido", matchups, format_func=matchups.get)
+    game_id = game_col.selectbox("Partido", matchups, format_func=matchups.get)
     game = day_games.loc[game_id]
 
     def tag(player_id):
@@ -246,7 +300,7 @@ with prediction_tab:
         roster["EXPECTED_MIN"] = roster["PLAYER_ID"].map(minutes).fillna(0)
         roster = roster.sort_values("EXPECTED_MIN", ascending=False)
         labels = {pid: name + tag(pid) for pid, name in zip(roster["PLAYER_ID"], roster["PLAYER_NAME"])}
-        return container.multiselect(
+        ids = container.multiselect(
             f"{side}: {team}",
             labels,
             default=list(labels)[:5],
@@ -254,10 +308,11 @@ with prediction_tab:
             max_selections=5,
             key=f"{game_id}_{team_id}",
         )
+        return ids, labels
 
     away_col, home_col = st.columns(2)
-    away_ids = pick_lineup(away_col, "Visitante", game.AWAY_TEAM_ID, game.AWAY_TEAM)
-    home_ids = pick_lineup(home_col, "Local", game.HOME_TEAM_ID, game.HOME_TEAM)
+    away_ids, away_labels = pick_lineup(away_col, "Visitante", game.AWAY_TEAM_ID, game.AWAY_TEAM)
+    home_ids, home_labels = pick_lineup(home_col, "Local", game.HOME_TEAM_ID, game.HOME_TEAM)
 
     if len(away_ids) < 5 or len(home_ids) < 5:
         st.warning("Elige 5 jugadores por equipo.")
@@ -269,6 +324,43 @@ with prediction_tab:
         away_col.metric(f"Victoria {game.AWAY_TEAM}", f"{1 - p_home:.0%}", border=True)
         home_col.metric(f"Victoria {game.HOME_TEAM}", f"{p_home:.0%}", border=True)
 
+        st.subheader("Cara a cara")
+        season_view = f"Temporada {new}"
+        with st.container(horizontal=True, vertical_alignment="center"):
+            view = st.segmented_control(
+                "Ver", [season_view, *FORM_VIEWS], default="Últimos 5", required=True, key="face_view",
+                label_visibility="collapsed",
+            )
+            face_per36 = st.toggle("Por 36 minutos", key="face_per36")
+        face_config = {
+            "_index": st.column_config.TextColumn(width=190),
+            **{
+                short: st.column_config.NumberColumn(format="%.1f", width=52, help=LABELS[c])
+                for c, short in FACE_COLS.items()
+            },
+            "Tend.": st.column_config.NumberColumn(
+                format="%+.1f",
+                width=52,
+                help=f"Tendencia: puntos en esta vista − promedio de la temporada ({new}, o {old} si no la jugó)",
+            ),
+        }
+        face_away, face_home = st.columns(2)
+        short_on_games = []
+        for container, side, team, ids, labels in [
+            (face_away, "Visitante", game.AWAY_TEAM, away_ids, away_labels),
+            (face_home, "Local", game.HOME_TEAM, home_ids, home_labels),
+        ]:
+            table, short = face_to_face(ids, labels, view, face_per36)
+            short_on_games += short
+            container.markdown(f"**{side}: {team}**")
+            container.dataframe(table, column_config=face_config)
+        st.caption(
+            f"«Temporada» es el promedio de {new} (o de {old} si el jugador no jugó esa). «Últimos 5» y «Últimos 10» "
+            "incluyen pretemporada, temporada regular y playoffs; en pretemporada los titulares juegan menos minutos, "
+            "así que conviene mirarlos por 36 minutos. Tend. = puntos en la vista − promedio de la temporada."
+            + (f" Con menos partidos: {', '.join(short_on_games)}." if short_on_games else "")
+        )
+
         st.subheader("Marcador proyectado")
         by_team = project(team_r.loc[game.HOME_TEAM_ID], team_r.loc[game.AWAY_TEAM_ID], home_edge_pts)
         by_lineup = project(
@@ -279,7 +371,9 @@ with prediction_tab:
             index=["Por equipo", "Por alineación"],
             columns=[game.AWAY_TEAM, game.HOME_TEAM, "Total"],
         )
-        st.dataframe(score, column_config={c: st.column_config.NumberColumn(format="%.1f") for c in score.columns})
+        st.dataframe(
+            score, width="content", column_config={c: st.column_config.NumberColumn(format="%.1f") for c in score.columns}
+        )
         st.caption(
             "Puntos = ((ataque propio × ritmo propio) / 100 + (defensa rival × ritmo rival) / 100) / 2 ± ventaja de "
             f"local, con los ratings de {LAST} mezclados con lo que va de {CURRENT_SEASON}. "

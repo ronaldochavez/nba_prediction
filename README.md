@@ -18,7 +18,8 @@ Ambas mezclan la temporada pasada con lo que va de la actual, y la app lleva el 
   de la temporada pasada, una vista **por 36 minutos** y el detalle partido a partido.
 - **Predicción**: eliges una fecha y un partido del calendario 2026-27, armas la alineación de cada equipo y ves el porcentaje de victoria,
   los puntos proyectados de cada equipo y el total del partido. Por defecto se sugieren los 5 jugadores con más minutos esperados.
-  Debajo se muestra qué stats inclinan la balanza hacia cada equipo.
+  Un **cara a cara** muestra las stats clave de los 10 jugadores elegidos (temporada, últimos 5 o últimos 10 partidos, también por
+  36 minutos) y, debajo, qué stats inclinan la balanza hacia cada equipo.
 - **Seguimiento**: compara cada predicción con el resultado real de los partidos ya jugados de 2026-27.
 
 ![Pestaña Jugadores](docs/jugadores.png)
