@@ -189,7 +189,11 @@ def main():
     for season in SEASONS:
         save("game_logs", game_logs, season)
         save("games", games, season)
-    # Lo de la temporada actual cambia a diario: se vuelve a bajar siempre
+    refresh_current()
+
+
+def refresh_current():
+    """Lo de la temporada actual cambia a diario: se vuelve a bajar siempre (también desde la app)."""
     for name, download in [
         ("game_logs", game_logs), ("games", games), ("player_ratings", player_ratings),
         ("schedule", schedule), ("rosters", rosters),

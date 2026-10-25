@@ -18,9 +18,12 @@ Ambas mezclan la temporada pasada con lo que va de la actual, y la app lleva el 
   de la temporada pasada, una vista **por 36 minutos** y el detalle partido a partido.
 - **Predicción**: eliges una fecha y un partido del calendario 2026-27, armas la alineación de cada equipo y ves el porcentaje de victoria,
   los puntos proyectados de cada equipo y el total del partido. Por defecto se sugieren los 5 jugadores con más minutos esperados.
-  Un **cara a cara** muestra las stats clave de los 10 jugadores elegidos (temporada, últimos 5 o últimos 10 partidos, también por
-  36 minutos) y, debajo, qué stats inclinan la balanza hacia cada equipo.
+  Un **cara a cara** muestra las stats clave de toda la plantilla de cada equipo (temporada, últimos 5 o últimos 10 partidos, también
+  por 36 minutos): primero los 5 elegidos con su promedio y luego la banca con el suyo. Debajo, qué stats inclinan la balanza hacia cada equipo.
+- **Jornada**: todos los partidos de un día en una sola página, cada uno con su alineación, porcentaje de victoria y momio justo.
+  Escribes los momios de la casa, tu bank y a quién le apuestas, y la app sugiere cuánto meterle con el criterio de Kelly.
 - **Seguimiento**: compara cada predicción con el resultado real de los partidos ya jugados de 2026-27.
+- **Actualizar datos**: el botón de arriba descarga lo de la temporada actual sin cerrar la app.
 
 ![Pestaña Jugadores](docs/jugadores.png)
 
@@ -128,6 +131,19 @@ La pestaña **Seguimiento** (y `python tracking.py`) compara cada partido ya jug
 ganador, marcador por equipo y por alineación, y total. Cada predicción usa solo lo que se sabía antes del partido y la alineación
 que de verdad jugó, igual que la evaluación histórica. Con pocos partidos el porcentaje de aciertos varía mucho.
 
+## Jornada y tamaño de apuesta
+
+El momio se escribe como americano (`-110`, `+150`) o decimal (`1.91`). El **momio justo** es el que pagaría exactamente la
+probabilidad del modelo: si la casa paga más, hay ventaja. La apuesta sugerida sigue el criterio de Kelly:
+
+```
+fracción del bank = (probabilidad × momio decimal − 1) / (momio decimal − 1)
+```
+
+multiplicada por la fracción elegida (completo, 1/2 o 1/4; por defecto 1/4), y es 0 si no hay ventaja. Kelly completo es la apuesta
+que más hace crecer el bank solo si las probabilidades fueran exactas; como son estimaciones, una fracción reduce mucho las rachas malas.
+Cada apuesta se calcula sobre el bank completo y el resumen suma las del día.
+
 ## Instalación y uso
 
 El repositorio ya incluye los datos (descargados en octubre de 2026) y el modelo entrenado.
@@ -149,7 +165,7 @@ El repositorio ya incluye los datos (descargados en octubre de 2026) y el modelo
    ```
 
 `data.py` vuelve a descargar siempre lo de la temporada actual (resultados, box scores, ratings, plantillas y calendario), que cambia a diario;
-los archivos históricos solo se bajan una vez. Si la app está abierta, reiníciala para que lea los datos nuevos.
+los archivos históricos solo se bajan una vez. Con la app abierta, el botón **Actualizar datos** hace lo mismo y recarga la app.
 
 ## Estructura
 
@@ -158,6 +174,7 @@ los archivos históricos solo se bajan una vez. Si la app está abierta, reiníc
 ├── model.py            # Entrena y evalúa el modelo de victoria → model.joblib
 ├── points.py           # Proyección de puntos y su evaluación
 ├── tracking.py         # Predicciones contra resultados de la temporada actual
+├── betting.py          # Momios y tamaño de apuesta (criterio de Kelly)
 ├── app.py              # App de Streamlit
 ├── roster_moves.csv    # Movimientos de plantilla que la API aún no refleja
 ├── data/               # CSV descargados
