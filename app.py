@@ -144,7 +144,8 @@ last_ids = set(load_csv("player_stats", LAST)["PLAYER_ID"])
 older_ids = set(load_csv("player_stats", OLDER)["PLAYER_ID"])
 current_ids = set(regular_season_logs(CURRENT_SEASON)["PLAYER_ID"])
 dates = pd.to_datetime(schedule["GAME_DATE"]).dt.date
-upcoming = dates[dates >= dt.date.today()]
+# El calendario usa la fecha de Nueva York; así no depende de la zona horaria del servidor
+upcoming = dates[dates >= pd.Timestamp.now(tz="America/New_York").date()]
 first_day = upcoming.min() if len(upcoming) else dates.min()
 
 
