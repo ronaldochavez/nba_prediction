@@ -1,7 +1,8 @@
 """Compara las predicciones con los resultados de los partidos ya jugados de la temporada actual.
 
-Cada predicción usa solo lo que se sabía antes del partido y la alineación que de verdad jugó
-(los 5 con más minutos), igual que en la evaluación de model.py y points.py.
+Cada predicción usa solo lo que se sabía antes del partido y, de los que jugaron, los 5 con más
+minutos esperados (como si se hubiera revisado el reporte de lesiones), igual que en la evaluación
+de model.py y points.py.
 """
 import joblib
 import pandas as pd

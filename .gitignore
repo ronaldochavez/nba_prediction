@@ -4,3 +4,4 @@ __pycache__/
 venv/
 .claude/
 .streamlit/secrets.toml
+data/odds_*.csv

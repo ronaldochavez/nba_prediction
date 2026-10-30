@@ -1,8 +1,11 @@
 """Descarga los datos de la NBA con nba_api y los guarda en CSV dentro de data/."""
+import re
 import time
+import unicodedata
 from pathlib import Path
 
 import pandas as pd
+import requests
 from nba_api.stats.endpoints import (
     commonallplayers,
     leaguedashplayerstats,
@@ -20,6 +23,8 @@ STAT_COLS = ["PTS", "REB", "AST", "STL", "BLK", "TOV", "MIN", "FG_PCT", "FG3_PCT
 # Puntos anotados / recibidos por 100 posesiones y posesiones por 48 minutos
 RATING_COLS = ["OFF_RATING", "DEF_RATING", "PACE"]
 PAUSE = 1.5  # segundos entre llamadas para no saturar stats.nba.com
+# stats.nba.com no publica lesiones; ESPN sí, en JSON y actualizado durante el día
+INJURIES_URL = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/injuries"
 
 
 def fetch(endpoint, retries=3, **params):
@@ -132,6 +137,37 @@ def rosters(season):
     return df[["PLAYER_ID", "PLAYER_NAME", "TEAM_ID", "TEAM_ABBREVIATION"]]
 
 
+def name_key(name):
+    """Nombre sin acentos, signos ni sufijos para cruzar fuentes: «Dereck Lively II» → «dereck lively»."""
+    name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
+    return " ".join(w for w in re.sub(r"[^a-z ]", "", name).split() if w not in {"jr", "sr", "ii", "iii", "iv"})
+
+
+def injuries(season):
+    """Reporte de lesiones de ESPN con el PLAYER_ID de la NBA, que se busca por nombre en las plantillas.
+
+    STATUS es «Out» (fuera) o «Day-To-Day» (en duda); RETURN_DATE es el regreso estimado.
+    """
+    time.sleep(PAUSE)
+    response = requests.get(INJURIES_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=60)
+    response.raise_for_status()
+    df = pd.DataFrame(
+        [
+            (i["athlete"]["displayName"], i["status"], i.get("details", {}).get("returnDate"),
+             i.get("details", {}).get("type"), i["date"][:10])
+            for team in response.json()["injuries"] for i in team["injuries"]
+        ],
+        columns=["PLAYER_NAME", "STATUS", "RETURN_DATE", "INJURY", "UPDATED"],
+    )
+    rosters = load("rosters", season)
+    ids = dict(zip(rosters["PLAYER_NAME"].map(name_key), rosters["PLAYER_ID"]))
+    df["PLAYER_ID"] = df["PLAYER_NAME"].map(name_key).map(ids)
+    if df["PLAYER_ID"].isna().any():
+        print(f"  sin cruzar con las plantillas: {', '.join(df.loc[df['PLAYER_ID'].isna(), 'PLAYER_NAME'])}")
+    df = df.dropna(subset="PLAYER_ID").astype({"PLAYER_ID": int}).drop_duplicates("PLAYER_ID")
+    return df[["PLAYER_ID", "PLAYER_NAME", "STATUS", "RETURN_DATE", "INJURY", "UPDATED"]]
+
+
 def save(name, download, season, refresh=False):
     """Descarga y guarda un CSV; si ya existe solo lo vuelve a bajar con refresh=True."""
     path = DATA_DIR / f"{name}_{season}.csv"
@@ -196,7 +232,7 @@ def refresh_current():
     """Lo de la temporada actual cambia a diario: se vuelve a bajar siempre (también desde la app)."""
     for name, download in [
         ("game_logs", game_logs), ("games", games), ("player_ratings", player_ratings),
-        ("schedule", schedule), ("rosters", rosters),
+        ("schedule", schedule), ("rosters", rosters), ("injuries", injuries),  # lesiones después de las plantillas
     ]:
         save(name, download, CURRENT_SEASON, refresh=True)
 
