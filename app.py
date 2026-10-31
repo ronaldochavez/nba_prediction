@@ -14,7 +14,7 @@ from model import (
     expected_minutes, game_features, regular_season_logs, team_features, weights,
 )
 from points import current_ratings, lineup_ratings, project
-from tracking import season_tracking, summary
+from tracking import projected_margin, season_tracking, summary
 
 LABELS = {
     "PTS": "Puntos", "REB": "Rebotes", "AST": "Asistencias", "STL": "Robos", "BLK": "Tapones",
@@ -477,9 +477,15 @@ with tracking_tab:
             st.metric("Ganador acertado", f"{s['Aciertos del ganador']:.0%}", border=True)
             st.metric("Error de puntos por equipo", f"{s['TEAM por equipo']:.1f}", border=True)
             st.metric("Error del total", f"{s['TEAM total']:.1f}", border=True)
+            st.metric(
+                "Diferencia cumplida", f"{s['TEAM diferencia']:.0%}", border=True,
+                help="Partidos en que el equipo que el marcador proyectado (por equipo) ponía arriba ganó por al menos "
+                "esa diferencia",
+            )
 
         hit = (track["P_HOME"] >= 0.5) == (track["HOME_WIN"] == 1)
         score = lambda away, home: away.round().astype(int).astype(str) + "-" + home.round().astype(int).astype(str)
+        favorite, margin, real = projected_margin(track, "TEAM")
         st.dataframe(
             pd.DataFrame({
                 "Fecha": pd.to_datetime(track["GAME_DATE"]).dt.strftime("%d/%m/%y"),
@@ -491,6 +497,9 @@ with tracking_tab:
                 "Marcador": score(track["AWAY_PTS"], track["HOME_PTS"]),
                 "Proy. por equipo": score(track["TEAM_AWAY"], track["TEAM_HOME"]),
                 "Proy. por alineación": score(track["LINEUP_AWAY"], track["LINEUP_HOME"]),
+                "Dif. proy.": favorite + " por " + margin.round(1).astype(str),
+                "Dif. real": real,
+                "Cumplió": real >= margin,
                 "Total": track["AWAY_PTS"] + track["HOME_PTS"],
                 "Total proy.": track["TEAM_AWAY"] + track["TEAM_HOME"],
             }),
@@ -498,6 +507,13 @@ with tracking_tab:
             column_config={
                 "Prob. local": st.column_config.NumberColumn(format="%.0f%%"),
                 "Acierto": st.column_config.CheckboxColumn(),
+                "Dif. proy.": st.column_config.TextColumn(
+                    help="Equipo que el marcador proyectado por equipo pone arriba y por cuántos puntos"
+                ),
+                "Dif. real": st.column_config.NumberColumn(
+                    format="%+.0f", help="Por cuánto ganó (+) o perdió (−) ese mismo equipo"
+                ),
+                "Cumplió": st.column_config.CheckboxColumn(help="Ganó por al menos la diferencia proyectada"),
                 "Total proy.": st.column_config.NumberColumn(format="%.0f", help="Proyección por equipo"),
             },
         )
@@ -507,7 +523,11 @@ with tracking_tab:
             f"son de la proyección por equipo; por alineación: {s['LINEUP por equipo']:.1f} por equipo y "
             f"{s['LINEUP total']:.1f} en el total (usa los ratings de jugadores de {LAST}, sin mezclar con "
             f"{CURRENT_SEASON}). Con pocos partidos el porcentaje de aciertos varía mucho: en las temporadas 2023-24 "
-            "a 2025-26 fue de 68.4 %."
+            "a 2025-26 fue de 68.4 %. "
+            f"La diferencia proyectada por alineación se cumplió en {s['LINEUP diferencia']:.0%} de los partidos; en "
+            "2023-24 a 2025-26, 58 % por equipo (67 % con diferencias de 6 a 10 puntos) y 55 % por alineación. "
+            "Las diferencias proyectadas son chicas (de 3 a 3.5 puntos en promedio) porque la fórmula promedia el ataque "
+            "de un equipo con la defensa del otro, así que no equivalen al hándicap de una casa de apuestas."
         )
 
     st.subheader("Modelo contra el mercado")
@@ -594,7 +614,7 @@ with slate_tab:
     if slate.empty:
         st.info("No hay partidos ese día.")
     else:
-        summary = st.container()
+        day_summary = st.container()  # no se llama summary para no tapar la función de tracking
         bets = []
         saved_odds = {(r.GAME_ID, r.TEAM): (r.ODDS, r.MODEL_P) for r in load_odds().itertuples()}
         for game_id, game in slate.iterrows():
@@ -603,7 +623,7 @@ with slate_tab:
             if bet:
                 bets.append(bet)
 
-        with summary:
+        with day_summary:
             if not bets:
                 st.caption(
                     "En cada partido elige a quién apostarle y escribe su momio; aquí aparece el resumen de las apuestas "

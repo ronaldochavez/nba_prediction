@@ -169,6 +169,11 @@ La pestaña **Seguimiento** (y `python tracking.py`) compara cada partido ya jug
 ganador, marcador por equipo y por alineación, y total. Cada predicción usa solo lo que se sabía antes del partido y, de los que
 jugaron, los 5 con más minutos esperados, igual que la evaluación histórica. Con pocos partidos el porcentaje de aciertos varía mucho.
 
+También cuenta cuántas veces se cumple la **diferencia del marcador proyectado**: el equipo que la proyección pone arriba gana por al
+menos esa diferencia. En 2023-24 a 2025-26 pasó en el 58 % de los partidos por equipo y el 55 % por alineación; por equipo, el 54 % con
+diferencias de menos de 3 puntos y el 67 % con diferencias de 6 a 10. Las diferencias proyectadas son chicas (de 3 a 3.5 puntos en promedio)
+porque la fórmula promedia el ataque de un equipo con la defensa del otro, así que no equivalen al hándicap de una casa de apuestas.
+
 Debajo, **modelo contra el mercado**: los momios que escribiste en Jornada antes de cada partido, con la probabilidad que daba el modelo en ese
 momento. Compara los aciertos y el error de las probabilidades (Brier) del modelo y de la casa, a la que se le quita su margen cuando están los
 momios de los dos equipos, y lo que habría dejado apostar 1 unidad cada vez que el modelo veía ventaja. Es la prueba real para apostar,
