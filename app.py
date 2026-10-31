@@ -32,6 +32,28 @@ FACE_COLS = {"MIN": "Min", "PTS": "Pts", "REB": "Reb", "AST": "Ast", "STL": "Rob
 FORM_VIEWS = {"Últimos 5": 5, "Últimos 10": 10}
 
 st.set_page_config(page_title="Predicción NBA", page_icon=":material/sports_basketball:", layout="wide")
+# Archivos que se vuelven a bajar con cada actualización (los momios guardados no cuentan)
+DAILY_FILES = ["game_logs", "games", "player_ratings", "schedule", "rosters", "injuries", "lineups"]
+
+
+@st.cache_resource
+def cached_data_version():
+    """Versión de los datos que tiene la caché, compartida por todas las sesiones abiertas."""
+    return {}
+
+
+def clear_cache_if_data_changed():
+    """Limpia la caché si los archivos cambiaron desde la última vez: por la actualización automática, que en
+    Streamlit Cloud llega con un push a GitHub, o por data.py corrido con la app abierta."""
+    paths = [DATA_DIR / f"{name}_{CURRENT_SEASON}.csv" for name in DAILY_FILES]
+    version = max(p.stat().st_mtime for p in paths if p.exists())
+    seen = cached_data_version()
+    if seen.get("version") != version:
+        st.cache_data.clear()
+        seen["version"] = version
+
+
+clear_cache_if_data_changed()
 
 
 @st.cache_data
@@ -157,6 +179,7 @@ ps, bench = load_current_stats()
 minutes = load_expected_minutes()
 elo, b2b_table = load_game_context()
 injuries = load_csv("injuries", CURRENT_SEASON).set_index("PLAYER_ID")
+nba_lineups = load_csv("lineups", CURRENT_SEASON)
 model_modified = MODEL_PATH.stat().st_mtime
 model = load_model(model_modified)
 last_ids = set(load_csv("player_stats", LAST)["PLAYER_ID"])
@@ -195,45 +218,63 @@ def injury_status(player_id, day):
 
 
 def injury_note(roster):
-    """Lesionados de una plantilla: «Fuera: Nombre (Knee, vuelve ~20/11). En duda: Nombre (Ankle).»"""
+    """Bajas de una plantilla: «Fuera: Nombre (Knee, vuelve ~20/11). En duda: Nombre (Ankle). Inactivos: Nombre.»"""
     groups = []
-    for label, status in [("Fuera", "fuera"), ("En duda", "duda")]:
+    for label, status in [("Fuera", "fuera"), ("En duda", "duda"), ("Inactivos", "inactivo")]:
         names = []
         for pid, name in roster.loc[roster["STATUS"] == status, ["PLAYER_ID", "PLAYER_NAME"]].itertuples(index=False):
-            info = injuries.loc[pid]
-            detail = [info.INJURY] if pd.notna(info.INJURY) else []
-            if status == "fuera" and pd.notna(info.RETURN_DATE):
-                detail.append(f"vuelve ~{pd.to_datetime(info.RETURN_DATE):%d/%m}")
+            detail = []
+            if pid in injuries.index:  # los inactivos de la NBA pueden no estar en el reporte de ESPN
+                info = injuries.loc[pid]
+                detail = [info.INJURY] if pd.notna(info.INJURY) else []
+                if status == "fuera" and pd.notna(info.RETURN_DATE):
+                    detail.append(f"vuelve ~{pd.to_datetime(info.RETURN_DATE):%d/%m}")
             names.append(name + (f" ({', '.join(detail)})" if detail else ""))
         if names:
             groups.append(f"{label}: {', '.join(names)}")
     return ". ".join(groups) + "." if groups else ""
 
 
-def pick_lineup(container, side, team_id, team, key, day):
-    """Selector de 5 jugadores; por defecto los 5 con más minutos esperados que no están fuera por lesión.
+def pick_lineup(container, side, team_id, team, key, day, game_id):
+    """Selector de 5 jugadores. Por defecto, los titulares que publicó la NBA (esperados o confirmados) o, si aún
+    no hay, los 5 con más minutos esperados que no están fuera por lesión.
 
-    Devuelve los elegidos, su banca (los BENCH_SIZE siguientes disponibles), la plantilla disponible de más a
-    menos minutos esperados y el nombre de cada jugador.
+    Con la alineación confirmada, la lista de inactivos de la NBA reemplaza al reporte de ESPN. Devuelve los
+    elegidos, su banca (los BENCH_SIZE siguientes disponibles), la plantilla disponible de más a menos minutos
+    esperados y el nombre de cada jugador.
     """
-    roster = rosters[rosters["TEAM_ID"] == team_id].copy()
+    official = nba_lineups[(nba_lineups["GAME_ID"] == game_id) & (nba_lineups["TEAM_ID"] == team_id)]
+    starters = list(official.loc[official["POSITION"].notna(), "PLAYER_ID"])
+    confirmed = (official["LINEUP_STATUS"] == "Confirmed").any()
+    inactive = set(official.loc[official["ROSTER_STATUS"] == "Inactive", "PLAYER_ID"])
+    roster = rosters[rosters["TEAM_ID"] == team_id]
+    new_starters = official[official["PLAYER_ID"].isin(starters) & ~official["PLAYER_ID"].isin(roster["PLAYER_ID"])]
+    roster = pd.concat([roster, new_starters])[["PLAYER_ID", "PLAYER_NAME"]]  # titulares que aún no están en la plantilla
     roster["EXPECTED_MIN"] = roster["PLAYER_ID"].map(minutes).fillna(0)
     roster = roster.sort_values("EXPECTED_MIN", ascending=False)
-    roster["STATUS"] = [injury_status(pid, day) for pid in roster["PLAYER_ID"]]
+    roster["STATUS"] = [
+        "inactivo" if pid in inactive else "" if confirmed else injury_status(pid, day) for pid in roster["PLAYER_ID"]
+    ]
     labels = {
-        pid: name + tag(pid) + (f" ({status})" if status else "")
+        pid: name + tag(pid) + (" (titular)" if pid in starters else "") + (f" ({status})" if status else "")
         for pid, name, status in zip(roster["PLAYER_ID"], roster["PLAYER_NAME"], roster["STATUS"])
     }
-    available = list(roster.loc[roster["STATUS"] != "fuera", "PLAYER_ID"])
+    available = list(roster.loc[~roster["STATUS"].isin(["fuera", "inactivo"]), "PLAYER_ID"])
     ids = container.multiselect(
         f"{side}: {team}",
         labels,
-        default=available[:5],
+        default=starters if len(starters) == 5 else available[:5],
         format_func=labels.get,
         max_selections=5,
-        key=key,
+        # Con titulares nuevos de la NBA cambia la clave, así el selector vuelve a empezar desde ellos
+        key=key + "".join(f"_{pid}" for pid in sorted(starters)),
     )
-    if note := injury_note(roster):
+    lineup_note = (
+        "Titulares confirmados por la NBA." if confirmed
+        else "Titulares esperados según la NBA; se confirman unos 30 minutos antes del partido." if starters
+        else ""
+    )
+    if note := " ".join(filter(None, [lineup_note, injury_note(roster)])):
         container.caption(note)
     return ids, [p for p in available if p not in ids][:BENCH_SIZE], available, labels
 
@@ -255,6 +296,13 @@ def game_prediction(game_id, game, home, away):
     return model.predict_proba(features.to_frame().T)[0, 1], features, home_f, away_f
 
 
+def tip_time(game):
+    """Hora del partido en la zona horaria del navegador (o de la Ciudad de México si no se sabe); "" si no hay."""
+    if pd.isna(game.get("GAME_TIME_UTC")):
+        return ""
+    return f"{pd.Timestamp(game.GAME_TIME_UTC).tz_convert(st.context.timezone or 'America/Mexico_City'):%H:%M}"
+
+
 def tired_teams(game_id, game):
     """Equipos del partido que jugaron el día anterior."""
     return [team for team, side in [(game.AWAY_TEAM, "AWAY"), (game.HOME_TEAM, "HOME")] if b2b_table.loc[game_id, side]]
@@ -271,15 +319,17 @@ def slate_game(game_id, game, bank, fraction, saved_odds):
     if game_id in finished.index:
         result = finished.loc[game_id]
         header += f" · Final: {result.AWAY_PTS:.0f}-{result.HOME_PTS:.0f}"
+    elif time := tip_time(game):
+        header += f" · {time}"
     if tired := tired_teams(game_id, game):
         header += f" · Jugó ayer: {', '.join(tired)}"
     st.markdown(header)
     away_col, home_col = st.columns(2)
     away_ids, away_bench, _, _ = pick_lineup(
-        away_col, "Visitante", game.AWAY_TEAM_ID, game.AWAY_TEAM, f"slate_{game_id}_{game.AWAY_TEAM_ID}", day
+        away_col, "Visitante", game.AWAY_TEAM_ID, game.AWAY_TEAM, f"slate_{game_id}_{game.AWAY_TEAM_ID}", day, game_id
     )
     home_ids, home_bench, _, _ = pick_lineup(
-        home_col, "Local", game.HOME_TEAM_ID, game.HOME_TEAM, f"slate_{game_id}_{game.HOME_TEAM_ID}", day
+        home_col, "Local", game.HOME_TEAM_ID, game.HOME_TEAM, f"slate_{game_id}_{game.HOME_TEAM_ID}", day, game_id
     )
     if len(away_ids) < 5 or len(home_ids) < 5:
         st.warning("Elige 5 jugadores por equipo.")
@@ -355,8 +405,8 @@ with update_col:
         "Actualizar datos",
         icon=":material/refresh:",
         width="stretch",
-        help=f"Descarga de stats.nba.com los resultados, box scores, ratings, plantillas y calendario de {CURRENT_SEASON}, "
-        "y de ESPN el reporte de lesiones. Tarda alrededor de medio minuto.",
+        help=f"Descarga de stats.nba.com los resultados, box scores, ratings, plantillas, calendario y alineaciones del día "
+        f"de {CURRENT_SEASON}, y de ESPN el reporte de lesiones. Tarda alrededor de medio minuto.",
     ):
         with st.spinner("Descargando de stats.nba.com y ESPN..."):
             try:
@@ -679,16 +729,19 @@ with prediction_tab:
         st.info("No hay partidos ese día.")
         st.stop()
 
-    matchups = {gid: f"{g.AWAY_TEAM} @ {g.HOME_TEAM}" for gid, g in day_games.iterrows()}
+    matchups = {
+        gid: f"{g.AWAY_TEAM} @ {g.HOME_TEAM}" + (f" · {tip_time(g)}" if tip_time(g) else "")
+        for gid, g in day_games.iterrows()
+    }
     game_id = game_col.selectbox("Partido", matchups, format_func=matchups.get)
     game = day_games.loc[game_id]
 
     away_col, home_col = st.columns(2)
     away_ids, away_bench, away_available, away_labels = pick_lineup(
-        away_col, "Visitante", game.AWAY_TEAM_ID, game.AWAY_TEAM, f"{game_id}_{game.AWAY_TEAM_ID}", day
+        away_col, "Visitante", game.AWAY_TEAM_ID, game.AWAY_TEAM, f"{game_id}_{game.AWAY_TEAM_ID}", day, game_id
     )
     home_ids, home_bench, home_available, home_labels = pick_lineup(
-        home_col, "Local", game.HOME_TEAM_ID, game.HOME_TEAM, f"{game_id}_{game.HOME_TEAM_ID}", day
+        home_col, "Local", game.HOME_TEAM_ID, game.HOME_TEAM, f"{game_id}_{game.HOME_TEAM_ID}", day, game_id
     )
 
     if len(away_ids) < 5 or len(home_ids) < 5:

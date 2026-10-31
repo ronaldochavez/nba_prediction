@@ -25,6 +25,9 @@ RATING_COLS = ["OFF_RATING", "DEF_RATING", "PACE"]
 PAUSE = 1.5  # segundos entre llamadas para no saturar stats.nba.com
 # stats.nba.com no publica lesiones; ESPN sí, en JSON y actualizado durante el día
 INJURIES_URL = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/injuries"
+# Alineaciones del día de la página de nba.com; la fecha va como 20261031
+LINEUPS_URL = "https://stats.nba.com/js/data/leaders/00_daily_lineups_{}.json"
+LINEUP_COLS = ["GAME_ID", "TEAM_ID", "PLAYER_ID", "PLAYER_NAME", "POSITION", "LINEUP_STATUS", "ROSTER_STATUS"]
 
 
 def fetch(endpoint, retries=3, **params):
@@ -116,13 +119,14 @@ def season_games(season):
         "HOME_PTS": df["homeTeam_score"],
         "AWAY_PTS": df["awayTeam_score"],
         "STATUS": df["gameStatus"],  # 3 = terminado
+        "GAME_TIME_UTC": df["gameDateTimeUTC"],
     })
 
 
 def games(season):
     """Partidos ya jugados con su resultado."""
     df = season_games(season)
-    df = df[df["STATUS"] == 3].drop(columns="STATUS")
+    df = df[df["STATUS"] == 3].drop(columns=["STATUS", "GAME_TIME_UTC"])
     df["HOME_WIN"] = (df["HOME_PTS"] > df["AWAY_PTS"]).astype(int)
     return df
 
@@ -166,6 +170,31 @@ def injuries(season):
         print(f"  sin cruzar con las plantillas: {', '.join(df.loc[df['PLAYER_ID'].isna(), 'PLAYER_NAME'])}")
     df = df.dropna(subset="PLAYER_ID").astype({"PLAYER_ID": int}).drop_duplicates("PLAYER_ID")
     return df[["PLAYER_ID", "PLAYER_NAME", "STATUS", "RETURN_DATE", "INJURY", "UPDATED"]]
+
+
+def lineups(season):
+    """Alineaciones de los partidos de hoy (fecha de Nueva York, como el calendario) que publica la NBA.
+
+    Durante el día LINEUP_STATUS es «Expected» (esperada) y unos 30 minutos antes de cada partido pasa a
+    «Confirmed». Los titulares son los que tienen POSITION; ROSTER_STATUS es «Active» o «Inactive».
+    Queda vacío mientras no se publican las del día.
+    """
+    day = pd.Timestamp.now(tz="America/New_York")
+    time.sleep(PAUSE)
+    response = requests.get(
+        LINEUPS_URL.format(f"{day:%Y%m%d}"), headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.nba.com/"},
+        timeout=60,
+    )
+    if response.status_code == 404:
+        return pd.DataFrame(columns=LINEUP_COLS)
+    response.raise_for_status()
+    return pd.DataFrame(
+        [
+            (g["gameId"], p["teamId"], p["personId"], p["playerName"], p["position"], p["lineupStatus"], p["rosterStatus"])
+            for g in response.json()["games"] for side in ("homeTeam", "awayTeam") for p in g[side]["players"]
+        ],
+        columns=LINEUP_COLS,
+    )
 
 
 def save(name, download, season, refresh=False):
@@ -229,12 +258,23 @@ def main():
 
 
 def refresh_current():
-    """Lo de la temporada actual cambia a diario: se vuelve a bajar siempre (también desde la app)."""
+    """Lo de la temporada actual cambia a diario: se vuelve a bajar siempre (también desde la app).
+
+    Si una descarga falla se sigue con las demás, y al final se avisa cuáles fallaron.
+    """
+    failed = []
     for name, download in [
         ("game_logs", game_logs), ("games", games), ("player_ratings", player_ratings),
         ("schedule", schedule), ("rosters", rosters), ("injuries", injuries),  # lesiones después de las plantillas
+        ("lineups", lineups),
     ]:
-        save(name, download, CURRENT_SEASON, refresh=True)
+        try:
+            save(name, download, CURRENT_SEASON, refresh=True)
+        except Exception as e:
+            print(f"{name}: error ({e})")
+            failed.append(f"{name} ({e})")
+    if failed:
+        raise RuntimeError(f"No se pudo descargar: {'; '.join(failed)}")
 
 
 if __name__ == "__main__":

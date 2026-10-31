@@ -5,3 +5,5 @@ venv/
 .claude/
 .streamlit/secrets.toml
 data/odds_*.csv
+auto_update.json
+auto_update.log

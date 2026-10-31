@@ -19,8 +19,9 @@ contra los momios de la casa.
   promedio de los últimos 5 y 10 partidos (pretemporada, temporada regular y playoffs), la tendencia frente a su promedio
   de la temporada pasada, una vista **por 36 minutos** y el detalle partido a partido.
 - **Predicción**: eliges una fecha y un partido del calendario 2026-27, armas la alineación de cada equipo y ves el porcentaje de victoria,
-  los puntos proyectados de cada equipo y el total del partido. Por defecto se sugieren los 5 jugadores con más minutos esperados que no
-  están **fuera por lesión**; debajo de cada selector se listan los lesionados (fuera y en duda) con su regreso estimado.
+  los puntos proyectados de cada equipo y el total del partido. Por defecto se eligen los **titulares que publica la NBA** (esperados
+  durante el día y confirmados unos 30 minutos antes del partido) o, si aún no hay, los 5 jugadores con más minutos esperados que no
+  están **fuera por lesión**; debajo de cada selector se listan los lesionados (fuera y en duda) con su regreso estimado y los inactivos oficiales.
   Un **cara a cara** muestra las stats clave de toda la plantilla disponible de cada equipo (temporada, últimos 5 o últimos 10 partidos, también
   por 36 minutos): primero los 5 elegidos con su promedio y luego la banca con el suyo. Debajo, qué datos inclinan la balanza hacia cada equipo.
 - **Jornada**: todos los partidos de un día en una sola página, cada uno con su alineación, porcentaje de victoria y momio justo.
@@ -215,8 +216,30 @@ El repositorio ya incluye los datos (descargados en octubre de 2026) y el modelo
    streamlit run app.py
    ```
 
-`data.py` vuelve a descargar siempre lo de la temporada actual (resultados, box scores, ratings, plantillas, calendario y lesiones), que cambia a diario;
-los archivos históricos solo se bajan una vez. Con la app abierta, el botón **Actualizar datos** hace lo mismo y recarga la app.
+`data.py` vuelve a descargar siempre lo de la temporada actual (resultados, box scores, ratings, plantillas, calendario, lesiones y
+alineaciones del día), que cambia a diario; los archivos históricos solo se bajan una vez. Con la app abierta, el botón
+**Actualizar datos** hace lo mismo, y la app también nota sola cuando los archivos cambian.
+
+## Actualización automática (para Streamlit Cloud)
+
+stats.nba.com bloquea los servidores de la nube, así que en Streamlit Cloud el botón **Actualizar datos** casi nunca funciona. En su lugar,
+una tarea programada de Windows en una computadora de casa descarga los datos y los sube a GitHub, y Streamlit Cloud se actualiza con
+cada push. `auto_update.py` descarga **20 minutos antes de cada horario de partido**, para tener la alineación confirmada, y **cada 3 horas**;
+solo hace commit de `data/` cuando algo cambió.
+
+1. Crea el entorno e instala las dependencias (una sola vez):
+   ```bash
+   python -m venv .venv
+   .venv\Scripts\pip install -r requirements.txt
+   ```
+2. Registra la tarea, que revisa cada 5 minutos si toca descargar:
+   ```bash
+   powershell -ExecutionPolicy Bypass -File programar_actualizacion.ps1
+   ```
+
+La computadora tiene que quedarse prendida, con la sesión de Windows abierta y sin suspenderse. Lo que pasa queda en `auto_update.log`;
+`.venv\Scripts\python auto_update.py --ahora` actualiza en ese momento, y
+`Unregister-ScheduledTask -TaskName "NBA - actualizar datos" -Confirm:$false` (en PowerShell) quita la tarea.
 
 ## Estructura
 
@@ -227,6 +250,8 @@ los archivos históricos solo se bajan una vez. Con la app abierta, el botón **
 ├── tracking.py         # Predicciones contra resultados de la temporada actual
 ├── betting.py          # Momios, tamaño de apuesta (criterio de Kelly) y registro de momios
 ├── app.py              # App de Streamlit
+├── auto_update.py      # Actualización automática de los datos y push a GitHub
+├── programar_actualizacion.ps1  # Registra la tarea programada de Windows que corre auto_update.py
 ├── roster_moves.csv    # Movimientos de plantilla que la API aún no refleja
 ├── data/               # CSV descargados
 └── docs/               # Capturas para este README
@@ -244,8 +269,9 @@ salvo las lesiones, que vienen de ESPN (stats.nba.com no las publica):
 | `team_ratings_<temporada>.csv` | Ratings ofensivo, defensivo y ritmo de cada equipo (2019-20 a 2025-26) |
 | `game_logs_<temporada>.csv` | Box score de cada jugador en cada partido, con pretemporada y playoffs (2021-22 a 2026-27) |
 | `games_<temporada>.csv` | Local, visitante y marcador de cada partido jugado (2021-22 a 2026-27) |
-| `schedule_2026-27.csv` | Calendario de la temporada actual |
+| `schedule_2026-27.csv` | Calendario de la temporada actual, con la hora de cada partido |
 | `rosters_2026-27.csv` | Plantillas actuales |
+| `lineups_2026-27.csv` | Alineaciones de hoy que publica nba.com: titulares, inactivos y si están confirmadas (unos 30 minutos antes del partido) o son esperadas |
 | `injuries_2026-27.csv` | Reporte de lesiones de ESPN: estado (fuera o en duda), lesión y regreso estimado. Se cruza con las plantillas por nombre |
 | `odds_2026-27.csv` | Momios que escribes en Jornada (solo en tu computadora) |
 
