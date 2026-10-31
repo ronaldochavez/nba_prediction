@@ -67,7 +67,7 @@ def publish():
         subprocess.run(["git", "rebase", "--abort"], cwd=ROOT, capture_output=True, creationflags=NO_WINDOW)
         raise
     git("push")
-    print("subido a GitHub")
+    print("GitHub al día")
 
 
 def main():
