@@ -24,9 +24,14 @@ contra los momios de la casa.
   están **fuera por lesión**; debajo de cada selector se listan los lesionados (fuera y en duda) con su regreso estimado y los inactivos oficiales.
   Un **cara a cara** muestra las stats clave de toda la plantilla disponible de cada equipo (temporada, últimos 5 o últimos 10 partidos, también
   por 36 minutos): primero los 5 elegidos con su promedio y luego la banca con el suyo. Debajo, qué datos inclinan la balanza hacia cada equipo.
+- **Ficha**: la historia de un partido en una página, para armar un avance: quién defendió a las estrellas la temporada pasada y
+  cuántos de esos defensores hoy están lesionados o en otro equipo, quién sube en los partidos sin los lesionados, el cansancio
+  (jugó ayer y quiénes jugaron 30+ minutos) y el historial entre los dos equipos.
 - **Jornada**: todos los partidos de un día en una sola página, cada uno con su alineación, porcentaje de victoria y momio justo.
   Escribes los momios de la casa, tu bank y a quién le apuestas, y la app sugiere cuánto meterle con el criterio de Kelly.
   Los momios se guardan solos para compararlos después con el resultado.
+- **Props**: puntos proyectados de cada jugador; escribes la línea de la casa y la app dice over o under, con qué probabilidad y
+  cuánta ventaja contra el momio, y lleva tu récord de picks.
 - **Seguimiento**: compara cada predicción con el resultado real de los partidos ya jugados de 2026-27, y el modelo contra el mercado
   en los partidos donde guardaste momios.
 - **Actualizar datos**: el botón de arriba descarga lo de la temporada actual sin cerrar la app.
@@ -210,6 +215,46 @@ Cada apuesta se calcula sobre el bank completo y el resumen suma las del día.
 Cada momio válido se guarda en `data/odds_2026-27.csv` (con la probabilidad del modelo en ese momento) mientras el partido no haya terminado,
 y vuelve a aparecer en su campo al abrir la app. Ese archivo es personal y no se sube a GitHub.
 
+## Ficha del partido
+
+Junta los datos con los que se cuenta la historia de un partido (como los avances de las cuentas de basquetbol en redes):
+
+- **Las estrellas y quién las defendió**: para los 2 jugadores con más puntos proyectados de cada equipo, los defensores del rival que
+  los marcaron la temporada pasada (posesiones, puntos y tiros, de los datos de seguimiento de la NBA) y dónde está hoy cada uno:
+  disponible, en duda, lesionado o en otro equipo. Por ejemplo, para OKC @ HOU del 31/10: los seis de OKC que ya no estaban habían
+  marcado a Durant 220 posesiones (92 %) y le permitieron 49 puntos.
+- **Quién sube sin los lesionados**: en los partidos de la temporada sin las bajas importantes (20+ minutos esperados), cuánto anotó
+  cada compañero contra los partidos con ellos.
+- **Cansancio**: cuándo jugó cada equipo, el resultado y quiénes jugaron 30 minutos o más.
+- **Historial**: los partidos entre los dos equipos la temporada pasada y en esta, con tiempo extra, palizas y los mejores anotadores.
+
+## Props de puntos
+
+`props.py` proyecta los puntos de cada jugador con lo que se sabe antes del partido:
+
+```
+proyección = 70 % × puntos por minuto × minutos esperados × defensa del rival × ritmo del partido
+           + 30 % × promedio de sus últimos 10 partidos
+           + 0.22 × puntos de los compañeros habituales que no juegan × su parte de los puntos del equipo
+```
+
+En 2023-24 a 2025-26 (45,034 jugador-partidos de jugadores con 20+ minutos esperados) se equivocó 5.23 puntos en promedio, contra 5.35
+del promedio de la temporada, casi sin sesgo. Restar por «jugó ayer» no mejoró la proyección individual. La probabilidad de over sale de
+los errores reales y no de una campana simétrica, porque los puntos tienen más noches flojas y unas pocas muy altas; así se cumple:
+
+| El modelo dice over | Partidos | Fue over |
+|---|---|---|
+| menos de 35 % | 1,122 | 31 % |
+| 35 a 45 % | 11,897 | 40 % |
+| 45 a 55 % | 22,429 | 49 % |
+| 55 a 65 % | 7,788 | 61 % |
+| más de 65 % | 1,798 | 74 % |
+
+(con la línea en el promedio de la temporada; `python props.py` repite la evaluación y guarda los parámetros en `props_model.json`).
+Las líneas que escribes se guardan en `data/props_2026-27.csv` con la proyección de ese momento, que es personal y no se sube a GitHub,
+y la pestaña lleva el récord de los picks (el lado más probable): aciertos, over y under, y lo que habría dejado apostar 1 unidad.
+Las casas ajustan sus líneas con mucha información: hacen falta cientos de picks para saber si les ganas.
+
 ## Instalación y uso
 
 El repositorio ya incluye los datos (descargados en octubre de 2026) y el modelo entrenado.
@@ -238,8 +283,8 @@ alineaciones del día), que cambia a diario; los archivos históricos solo se ba
 
 stats.nba.com bloquea los servidores de la nube, así que en Streamlit Cloud el botón **Actualizar datos** casi nunca funciona. En su lugar,
 una tarea programada de Windows en una computadora de casa descarga los datos y los sube a GitHub, y Streamlit Cloud se actualiza con
-cada push. `auto_update.py` descarga **20 minutos antes de cada horario de partido**, para tener la alineación confirmada, y **cada 3 horas**;
-solo hace commit de `data/` cuando algo cambió.
+cada push. `auto_update.py` descarga **20 minutos antes de cada horario de partido**, para tener la alineación confirmada, y **cada 3 horas**
+(los matchups de la temporada, que tardan un par de minutos, una vez al día); solo hace commit de `data/` cuando algo cambió.
 
 1. Crea el entorno e instala las dependencias (una sola vez):
    ```bash
@@ -262,6 +307,8 @@ La computadora tiene que quedarse prendida, con la sesión de Windows abierta y 
 ├── model.py            # Entrena y evalúa el modelo de victoria → model.joblib
 ├── points.py           # Proyección de puntos y su evaluación
 ├── tracking.py         # Predicciones contra resultados de la temporada actual
+├── brief.py            # Ficha de cada partido: defensores, bajas, cansancio e historial
+├── props.py            # Puntos proyectados por jugador para props y su evaluación → props_model.json
 ├── betting.py          # Momios, tamaño de apuesta (criterio de Kelly) y registro de momios
 ├── app.py              # App de Streamlit
 ├── auto_update.py      # Actualización automática de los datos y push a GitHub
@@ -286,6 +333,7 @@ salvo las lesiones, que vienen de ESPN (stats.nba.com no las publica):
 | `schedule_2026-27.csv` | Calendario de la temporada actual, con la hora de cada partido |
 | `rosters_2026-27.csv` | Plantillas actuales |
 | `lineups_2026-27.csv` | Alineaciones de hoy que publica nba.com: titulares, inactivos y si están confirmadas (unos 30 minutos antes del partido) o son esperadas |
+| `matchups_<temporada>.csv` | Quién defendió a quién: posesiones, puntos y tiros de cada atacante contra cada defensor, con el equipo del defensor (2025-26 y 2026-27, este una vez al día) |
 | `injuries_2026-27.csv` | Reporte de lesiones de ESPN: estado (fuera o en duda), lesión y regreso estimado. Se cruza con las plantillas por nombre |
 | `odds_2026-27.csv` | Momios que escribes en Jornada (solo en tu computadora) |
 

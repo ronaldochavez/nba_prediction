@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from data import CURRENT_SEASON, load, refresh_current
+from data import CURRENT_SEASON, load, refresh_current, refresh_matchups
 
 ROOT = Path(__file__).parent
 STATE_PATH = ROOT / "auto_update.json"  # cuándo fue la última actualización; no se sube a GitHub
@@ -79,11 +79,15 @@ def main():
         return
     print(f"\n{dt.datetime.now():%d/%m %H:%M} actualizando")
     state["attempt"] = now.isoformat()
-    try:
-        refresh_current()
+    ok = True
+    for step in (refresh_current, refresh_matchups):  # los matchups solo se vuelven a bajar una vez al día
+        try:
+            step()
+        except Exception as e:  # lo que sí se descargó se sube de todos modos
+            print(e)
+            ok = False
+    if ok:
         state["success"] = now.isoformat()
-    except Exception as e:  # lo que sí se descargó se sube de todos modos
-        print(e)
     try:
         publish()
     except subprocess.CalledProcessError as e:

@@ -7,3 +7,4 @@ venv/
 data/odds_*.csv
 auto_update.json
 auto_update.log
+data/props_*.csv

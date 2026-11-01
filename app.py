@@ -13,7 +13,9 @@ from model import (
     BENCH_COLS, BENCH_SIZE, ELO_MEAN, K_GAMES, MODEL_PATH, back_to_back, contributions, current_stats, elo_ratings,
     expected_minutes, game_features, regular_season_logs, team_features, weights,
 )
+from brief import absence_split, last_game, meetings, record, star_defenders
 from points import B2B_PTS, B2B_RIVAL_PTS, DEVIATION_WEIGHT, current_ratings, lineup_ratings, project
+from props import REGULAR_MIN, load_params, load_props, p_over, player_projections, props_results, save_prop
 from tracking import projected_margin, season_tracking, summary
 
 LABELS = {
@@ -33,7 +35,7 @@ FORM_VIEWS = {"Últimos 5": 5, "Últimos 10": 10}
 
 st.set_page_config(page_title="Predicción NBA", page_icon=":material/sports_basketball:", layout="wide")
 # Archivos que se vuelven a bajar con cada actualización (los momios guardados no cuentan)
-DAILY_FILES = ["game_logs", "games", "player_ratings", "schedule", "rosters", "injuries", "lineups"]
+DAILY_FILES = ["game_logs", "games", "player_ratings", "schedule", "rosters", "injuries", "lineups", "matchups"]
 
 
 @st.cache_resource
@@ -79,6 +81,11 @@ def load_expected_minutes():
 @st.cache_data
 def load_rosters():
     return current_rosters()
+
+
+@st.cache_data
+def load_regular_logs():
+    return regular_season_logs(CURRENT_SEASON)
 
 
 @st.cache_data
@@ -175,16 +182,23 @@ def face_to_face(lineup_ids, roster_ids, labels, view, per36):
 schedule = load_csv("schedule", CURRENT_SEASON)
 finished = load_csv("games", CURRENT_SEASON).set_index("GAME_ID")
 rosters = load_rosters()
+player_names = (
+    pd.concat([logs[["PLAYER_ID", "PLAYER_NAME"]], rosters[["PLAYER_ID", "PLAYER_NAME"]]])
+    .drop_duplicates("PLAYER_ID", keep="last").set_index("PLAYER_ID")["PLAYER_NAME"]
+)
 ps, bench = load_current_stats()
 minutes = load_expected_minutes()
 elo, b2b_table = load_game_context()
 injuries = load_csv("injuries", CURRENT_SEASON).set_index("PLAYER_ID")
 nba_lineups = load_csv("lineups", CURRENT_SEASON)
+team_r, player_r, bench_r, home_edge_pts = load_current_ratings()
+current_logs = load_regular_logs()
+props_params = load_params()
 model_modified = MODEL_PATH.stat().st_mtime
 model = load_model(model_modified)
 last_ids = set(load_csv("player_stats", LAST)["PLAYER_ID"])
 older_ids = set(load_csv("player_stats", OLDER)["PLAYER_ID"])
-current_ids = set(regular_season_logs(CURRENT_SEASON)["PLAYER_ID"])
+current_ids = set(current_logs["PLAYER_ID"])
 dates = pd.to_datetime(schedule["GAME_DATE"]).dt.date
 # El calendario usa la fecha de Nueva York; así no depende de la zona horaria del servidor
 today = pd.Timestamp.now(tz="America/New_York").date()
@@ -235,13 +249,12 @@ def injury_note(roster):
     return ". ".join(groups) + "." if groups else ""
 
 
-def pick_lineup(container, side, team_id, team, key, day, game_id):
-    """Selector de 5 jugadores. Por defecto, los titulares que publicó la NBA (esperados o confirmados) o, si aún
-    no hay, los 5 con más minutos esperados que no están fuera por lesión.
+def team_roster(team_id, day, game_id):
+    """Plantilla de un equipo para un partido, de más a menos minutos esperados, con el estado de cada jugador.
 
-    Con la alineación confirmada, la lista de inactivos de la NBA reemplaza al reporte de ESPN. Devuelve los
-    elegidos, su banca (los BENCH_SIZE siguientes disponibles), la plantilla disponible de más a menos minutos
-    esperados y el nombre de cada jugador.
+    STATUS es «inactivo» (lista de la NBA), «fuera» o «duda» (reporte de ESPN) o "". Con la alineación
+    confirmada, la lista de inactivos de la NBA reemplaza al reporte de ESPN. También devuelve los titulares
+    que publicó la NBA (esperados o confirmados) y si ya están confirmados.
     """
     official = nba_lineups[(nba_lineups["GAME_ID"] == game_id) & (nba_lineups["TEAM_ID"] == team_id)]
     starters = list(official.loc[official["POSITION"].notna(), "PLAYER_ID"])
@@ -251,19 +264,41 @@ def pick_lineup(container, side, team_id, team, key, day, game_id):
     new_starters = official[official["PLAYER_ID"].isin(starters) & ~official["PLAYER_ID"].isin(roster["PLAYER_ID"])]
     roster = pd.concat([roster, new_starters])[["PLAYER_ID", "PLAYER_NAME"]]  # titulares que aún no están en la plantilla
     roster["EXPECTED_MIN"] = roster["PLAYER_ID"].map(minutes).fillna(0)
-    roster = roster.sort_values("EXPECTED_MIN", ascending=False)
+    roster = roster.sort_values("EXPECTED_MIN", ascending=False).reset_index(drop=True)
     roster["STATUS"] = [
         "inactivo" if pid in inactive else "" if confirmed else injury_status(pid, day) for pid in roster["PLAYER_ID"]
     ]
+    return roster, starters, confirmed
+
+
+def available_ids(roster):
+    return list(roster.loc[~roster["STATUS"].isin(["fuera", "inactivo"]), "PLAYER_ID"])
+
+
+def default_lineup(roster, starters):
+    """Los titulares de la NBA o, si no hay, los 5 disponibles con más minutos esperados; y su banca."""
+    available = available_ids(roster)
+    lineup = starters if len(starters) == 5 else available[:5]
+    return lineup, [p for p in available if p not in lineup][:BENCH_SIZE]
+
+
+def pick_lineup(container, side, team_id, team, key, day, game_id):
+    """Selector de 5 jugadores. Por defecto, los titulares que publicó la NBA (esperados o confirmados) o, si aún
+    no hay, los 5 con más minutos esperados que no están fuera por lesión.
+
+    Devuelve los elegidos, su banca (los BENCH_SIZE siguientes disponibles), la plantilla disponible de más a
+    menos minutos esperados y el nombre de cada jugador.
+    """
+    roster, starters, confirmed = team_roster(team_id, day, game_id)
     labels = {
         pid: name + tag(pid) + (" (titular)" if pid in starters else "") + (f" ({status})" if status else "")
         for pid, name, status in zip(roster["PLAYER_ID"], roster["PLAYER_NAME"], roster["STATUS"])
     }
-    available = list(roster.loc[~roster["STATUS"].isin(["fuera", "inactivo"]), "PLAYER_ID"])
+    available = available_ids(roster)
     ids = container.multiselect(
         f"{side}: {team}",
         labels,
-        default=starters if len(starters) == 5 else available[:5],
+        default=default_lineup(roster, starters)[0],
         format_func=labels.get,
         max_selections=5,
         # Con titulares nuevos de la NBA cambia la clave, así el selector vuelve a empezar desde ellos
@@ -306,6 +341,299 @@ def tip_time(game):
 def tired_teams(game_id, game):
     """Equipos del partido que jugaron el día anterior."""
     return [team for team, side in [(game.AWAY_TEAM, "AWAY"), (game.HOME_TEAM, "HOME")] if b2b_table.loc[game_id, side]]
+
+
+def game_label(game):
+    return f"{game.AWAY_TEAM} @ {game.HOME_TEAM}" + (f" · {tip_time(game)}" if tip_time(game) else "")
+
+
+def pick_game(key):
+    """Selector de fecha y partido; devuelve (fecha, GAME_ID, partido), o None si ese día no hay partidos."""
+    date_col, game_col = st.columns([1, 2])
+    day = date_col.date_input(
+        "Fecha", value=first_day, min_value=dates.min(), max_value=dates.max(), format="DD/MM/YYYY", key=f"{key}_day"
+    )
+    day_games = schedule[dates == day].set_index("GAME_ID")
+    if day_games.empty:
+        st.info("No hay partidos ese día.")
+        return None
+    labels = {gid: game_label(g) for gid, g in day_games.iterrows()}
+    game_id = game_col.selectbox("Partido", labels, format_func=labels.get, key=f"{key}_game")
+    return day, game_id, day_games.loc[game_id]
+
+
+def game_sides(game):
+    """(equipo, abreviatura, rival, abreviatura del rival) del visitante y del local."""
+    return [
+        (game.AWAY_TEAM_ID, game.AWAY_TEAM, game.HOME_TEAM_ID, game.HOME_TEAM),
+        (game.HOME_TEAM_ID, game.HOME_TEAM, game.AWAY_TEAM_ID, game.AWAY_TEAM),
+    ]
+
+
+def team_projections(team_id, opp_id, roster):
+    """Puntos proyectados de los jugadores disponibles (props.py); los puntos de los ausentes se reparten."""
+    absent = list(roster.loc[roster["STATUS"].isin(["fuera", "inactivo"]), "PLAYER_ID"])
+    proj = player_projections(
+        team_id, opp_id, available_ids(roster), absent, ps, bench, minutes, team_r, current_logs, props_params
+    )
+    return proj.assign(Jugador=proj["PLAYER_ID"].map(player_names))
+
+
+def where_now(player_id, opp_roster):
+    """Dónde está hoy un defensor del rival: disponible, lesionado o en otro equipo."""
+    status = opp_roster.set_index("PLAYER_ID")["STATUS"]
+    info = injuries.loc[player_id] if player_id in injuries.index else None
+    detail = f" ({info.INJURY})" if info is not None and pd.notna(info.INJURY) else ""
+    if player_id in status.index:
+        labels = {"": "Disponible", "duda": f"Duda{detail}", "fuera": f"Fuera{detail}", "inactivo": "Inactivo"}
+        return labels[status[player_id]]
+    team = rosters.loc[rosters["PLAYER_ID"] == player_id, "TEAM_ABBREVIATION"]
+    return f"Ahora en {team.iloc[0]}" if len(team) else "Sin equipo"
+
+
+def defenders_block(star_id, team_abbr, opp_id, opp_abbr, opp_roster):
+    """Quién defendió a una estrella en el rival la temporada pasada (y esta), y cuántos de ellos ya no están."""
+    st.markdown(f"**{player_names.get(star_id, star_id)} ({team_abbr})**")
+    status = lambda pid: where_now(pid, opp_roster)  # noqa: E731
+    config = {
+        "Posesiones": st.column_config.NumberColumn(format="%.0f"),
+        "Puntos": st.column_config.NumberColumn(format="%.0f", help="Puntos que anotó contra ese defensor"),
+        "Tiros": st.column_config.TextColumn(help="Tiros de campo anotados-intentados contra ese defensor"),
+    }
+    table = star_defenders(star_id, opp_id, load_csv("matchups", LAST), player_names, status)
+    if table.empty:
+        st.caption(f"No enfrentó a {opp_abbr} en {LAST}.")
+    else:
+        gone = ~table["Hoy"].str.startswith(("Disponible", "Duda"))
+        st.dataframe(table.head(8), hide_index=True, column_config=config)
+        total, gone_poss = table["Posesiones"].sum(), table.loc[gone, "Posesiones"].sum()
+        st.caption(
+            f"{LAST}: {total:.0f} posesiones y {table['Puntos'].sum():.0f} puntos contra {opp_abbr}. Los que hoy no están "
+            f"lo defendieron {gone_poss:.0f} posesiones ({gone_poss / total:.0%}) y le permitieron "
+            f"{table.loc[gone, 'Puntos'].sum():.0f} puntos."
+        )
+    current = star_defenders(star_id, opp_id, load_csv("matchups", CURRENT_SEASON), player_names, status)
+    if not current.empty:
+        st.caption(f"Esta temporada contra {opp_abbr}:")
+        st.dataframe(current.head(5), hide_index=True, column_config=config)
+
+
+def game_brief(game_id, game, day):
+    """La ficha de un partido: récords, predicción, estrellas y sus defensores, bajas, cansancio e historial."""
+    sides = game_sides(game)
+    team_rosters = {team_id: team_roster(team_id, day, game_id) for team_id, *_ in sides}
+    played_before = finished[pd.to_datetime(finished["GAME_DATE"]).dt.date < day].reset_index()
+    home_lineup = default_lineup(*team_rosters[game.HOME_TEAM_ID][:2])
+    away_lineup = default_lineup(*team_rosters[game.AWAY_TEAM_ID][:2])
+    p_home = game_prediction(game_id, game, home_lineup, away_lineup)[0]
+    b2b = b2b_table.loc[game_id]
+    home_pts, away_pts = project(
+        team_r.loc[game.HOME_TEAM_ID], team_r.loc[game.AWAY_TEAM_ID], team_r.mean(), home_edge_pts, b2b["HOME"], b2b["AWAY"]
+    )
+    probs = {game.AWAY_TEAM_ID: 1 - p_home, game.HOME_TEAM_ID: p_home}
+    points = {game.AWAY_TEAM_ID: away_pts, game.HOME_TEAM_ID: home_pts}
+    for col, (team_id, abbr, _, _) in zip(st.columns(2), sides):
+        rec, last5 = record(team_id, played_before)
+        col.metric(
+            f"{abbr} · récord {rec}" + (f" · últimos {len(last5)}: {last5}" if last5 else ""), f"{probs[team_id]:.0%}",
+            f"{points[team_id]:.0f} puntos proyectados", delta_color="off", delta_arrow="off", border=True,
+        )
+    tired = tired_teams(game_id, game)
+    st.caption(
+        (f"{tip_time(game)} · " if tip_time(game) else "")
+        + "Victoria según el modelo con los titulares de la NBA (o los 5 con más minutos esperados que no están fuera); "
+        "puntos del marcador proyectado por equipo. "
+        + (f"Jugó ayer: {', '.join(tired)}." if tired else "Ninguno jugó ayer.")
+    )
+
+    projections = (
+        {team_id: team_projections(team_id, opp_id, team_rosters[team_id][0]) for team_id, _, opp_id, _ in sides}
+        if props_params else {}
+    )
+    st.subheader(f"Las estrellas y quién las defendió en {LAST}")
+    for col, (team_id, abbr, opp_id, opp_abbr) in zip(st.columns(2), sides):
+        stars = projections[team_id]["PLAYER_ID"].head(2) if projections else available_ids(team_rosters[team_id][0])[:2]
+        with col:
+            for star in stars:
+                defenders_block(star, abbr, opp_id, opp_abbr, team_rosters[opp_id][0])
+    st.caption(
+        "Posesiones en las que cada defensor del rival lo marcó (datos de seguimiento de la NBA) y lo que anotó contra él. "
+        "«Hoy» dice si ese defensor juega este partido, está lesionado o se fue a otro equipo."
+    )
+
+    st.subheader("Quién sube sin los lesionados")
+    logs_before = current_logs[pd.to_datetime(current_logs["GAME_DATE"]).dt.date < day]
+    for col, (team_id, abbr, _, _) in zip(st.columns(2), sides):
+        roster = team_rosters[team_id][0]
+        key_absent = roster[roster["STATUS"].isin(["fuera", "inactivo"]) & (roster["EXPECTED_MIN"] >= REGULAR_MIN)]
+        with col:
+            st.markdown(f"**{abbr}**")
+            if key_absent.empty:
+                st.caption("Sin bajas importantes.")
+                continue
+            ids, who = key_absent["PLAYER_ID"].tolist(), ", ".join(key_absent["PLAYER_NAME"])
+            without, table = absence_split(team_id, ids, logs_before)
+            if table.empty and len(ids) > 1:  # sin partidos sin todos ellos: la baja de más minutos sola
+                ids, who = ids[:1], key_absent["PLAYER_NAME"].iloc[0]
+                without, table = absence_split(team_id, ids, logs_before)
+            if table.empty:
+                st.caption(
+                    f"Bajas: {who}. " + ("No han jugado esta temporada." if without else "Todavía no hay partidos sin ellos.")
+                )
+                continue
+            st.caption(f"{len(without)} partido{'s' if len(without) > 1 else ''} de esta temporada sin {who}:")
+            st.dataframe(table.head(5), hide_index=True, column_config={
+                c: st.column_config.NumberColumn(format="%.1f") for c in ["Pts sin", "Pts con", "Min sin", "Min con"]
+            } | {"Diferencia": st.column_config.NumberColumn(format="%+.1f", help="Puntos sin ellos − puntos con ellos")})
+
+    st.subheader("Cansancio")
+    for col, (team_id, abbr, _, _) in zip(st.columns(2), sides):
+        info = last_game(team_id, day, current_logs, abbr)
+        if info is None:
+            col.caption(f"{abbr}: primer partido de la temporada.")
+            continue
+        when = "ayer (segunda noche seguida)" if info["dias"] == 1 else f"hace {info['dias']} días"
+        col.markdown(
+            f"**{abbr}** jugó {when}: {info['resultado']} {info['partido']}."
+            + (f" Con 30 minutos o más: {info['minutos']}." if info["minutos"] else "")
+        )
+    if tired:
+        st.caption(
+            "En 6,150 partidos, el que juega su segunda noche seguida pierde unos 2.7 puntos de margen; el porcentaje "
+            "de victoria y el marcador proyectado ya lo toman en cuenta."
+        )
+
+    st.subheader("Historial")
+    history = pd.concat([
+        meetings(game.AWAY_TEAM_ID, game.HOME_TEAM_ID, load_csv("game_logs", LAST), load_csv("games", LAST), LAST),
+        meetings(game.AWAY_TEAM_ID, game.HOME_TEAM_ID, current_logs, played_before, CURRENT_SEASON),
+    ], ignore_index=True)
+    if history.empty:
+        st.caption(f"No se enfrentaron en {LAST} ni en lo que va de {CURRENT_SEASON}.")
+    else:
+        st.dataframe(history, hide_index=True)
+
+    if projections:
+        st.subheader("Puntos proyectados")
+        for col, (team_id, abbr, _, _) in zip(st.columns(2), sides):
+            col.markdown(f"**{abbr}**")
+            col.dataframe(
+                projections[team_id][["Jugador", "EXP_MIN", "LAST10", "PROJ"]].head(6).rename(
+                    columns={"EXP_MIN": "Min esp.", "LAST10": "Últ. 10", "PROJ": "Proy."}
+                ),
+                hide_index=True,
+                column_config={c: st.column_config.NumberColumn(format="%.1f") for c in ["Min esp.", "Últ. 10", "Proy."]},
+            )
+        st.caption("Cómo se calculan y cómo compararlas con las líneas de las casas, en la pestaña Props.")
+
+
+def props_game(game_id, game, day):
+    """Líneas de puntos de un partido: proyección de cada jugador, tu línea y momios, y el pick.
+
+    Las líneas se guardan con la proyección del momento mientras el partido no haya terminado.
+    Devuelve los picks del partido.
+    """
+    saved = load_props()
+    saved = saved[saved["GAME_ID"] == game_id].set_index("PLAYER_ID")
+    done = game_id in finished.index
+    picks = []
+    for team_id, abbr, opp_id, opp_abbr in game_sides(game):
+        roster = team_roster(team_id, day, game_id)[0]
+        proj = team_projections(team_id, opp_id, roster)
+        proj = proj[proj["EXP_MIN"] >= 15]
+        saved_odds = {
+            col: proj["PLAYER_ID"].map(saved[col]).map(american).round().fillna(-110) for col in ["ODDS_OVER", "ODDS_UNDER"]
+        }
+        table = pd.DataFrame({
+            "PLAYER_ID": proj["PLAYER_ID"], "Jugador": proj["Jugador"], "Min": proj["EXP_MIN"], "Últ. 10": proj["LAST10"],
+            "Proy.": proj["PROJ"], "Línea": proj["PLAYER_ID"].map(saved["LINE"]),
+            "Over": saved_odds["ODDS_OVER"], "Under": saved_odds["ODDS_UNDER"],
+        })
+        st.markdown(f"**{abbr}** contra {opp_abbr}")
+        edited = st.data_editor(
+            table, key=f"props_{game_id}_{team_id}", hide_index=True, placeholder="—",
+            disabled=["Jugador", "Min", "Últ. 10", "Proy."],
+            column_order=["Jugador", "Min", "Últ. 10", "Proy.", "Línea", "Over", "Under"],
+            column_config={
+                "Min": st.column_config.NumberColumn(format="%.0f", help="Minutos esperados"),
+                "Últ. 10": st.column_config.NumberColumn(format="%.1f", help="Puntos en sus últimos 10 partidos"),
+                "Proy.": st.column_config.NumberColumn(format="%.1f", help="Puntos proyectados"),
+                "Línea": st.column_config.NumberColumn(
+                    min_value=0.0, step=0.5, format="%.1f", help="Línea de puntos de la casa"
+                ),
+                "Over": st.column_config.NumberColumn(step=5, format="%d", help="Momio americano del over"),
+                "Under": st.column_config.NumberColumn(step=5, format="%d", help="Momio americano del under"),
+            },
+        )
+        for row in edited.rename(columns={"Proy.": "PROJ", "Línea": "LINE"}).itertuples(index=False):
+            line = None if pd.isna(row.LINE) else float(row.LINE)
+            odds = [decimal_odds(str(int(x))) if pd.notna(x) else None for x in (row.Over, row.Under)]
+            prob = float(p_over(row.PROJ, line, props_params)) if line is not None else None
+            if not done:
+                old = saved.loc[row.PLAYER_ID] if row.PLAYER_ID in saved.index else None
+                changed = (old is None) != (line is None) or (line is not None and (
+                    old.LINE != line or old.ODDS_OVER != odds[0] or old.ODDS_UNDER != odds[1]
+                    or abs(old.PROJ - row.PROJ) > 0.05
+                ))
+                if changed and None not in odds:
+                    save_prop(game_id, game.GAME_DATE, row.PLAYER_ID, row.Jugador, abbr, line, *odds, row.PROJ,
+                              prob if prob is not None else 0.5)
+            if line is None:
+                continue
+            if None in odds:
+                st.warning(f"Momio no válido para {row.Jugador}: usa americano, como -110 o +120.")
+                continue
+            over = prob >= 0.5
+            p_side, side_odds = (prob, odds[0]) if over else (1 - prob, odds[1])
+            picks.append({
+                "Jugador": row.Jugador, "Equipo": abbr, "Línea": line, "Proy.": row.PROJ,
+                "Pick": "Over" if over else "Under", "Prob.": p_side * 100, "Momio": american(side_odds),
+                "Momio justo": american(1 / p_side), "Ventaja": (p_side - 1 / side_odds) * 100,
+            })
+    return pd.DataFrame(picks)
+
+
+def props_record():
+    """Récord de las líneas guardadas en partidos ya jugados, al estilo «mis picks»."""
+    st.subheader("Tu récord")
+    results = props_results(load_props(), current_logs)
+    if results.empty:
+        st.info(
+            "Todavía no hay props de partidos terminados. Las líneas que escribes se guardan solas y aquí verás cuántos "
+            "picks se cumplieron."
+        )
+        return
+    graded = results.dropna(subset=["HIT"])  # sin los que anotaron justo la línea
+    with st.container(horizontal=True):
+        st.metric("Picks", len(results), border=True)
+        st.metric("Aciertos", f"{graded['HIT'].sum():.0f}/{len(graded)}", f"{graded['HIT'].mean():.0%}",
+                  delta_color="off", delta_arrow="off", border=True)
+        for side in ["Over", "Under"]:
+            if len(picked := graded[graded["PICK"] == side]):
+                st.metric(side, f"{picked['HIT'].sum():.0f}/{len(picked)}", border=True)
+        st.metric("Ganancia por unidad", f"{results['PROFIT'].mean():+.1%}", border=True,
+                  help="Lo que habría dejado en promedio apostar 1 unidad a cada pick con sus momios")
+    results = results.sort_values(["GAME_DATE", "PLAYER_NAME"], ascending=[False, True])
+    st.dataframe(
+        pd.DataFrame({
+            "Fecha": pd.to_datetime(results["GAME_DATE"]).dt.strftime("%d/%m/%y"),
+            "Jugador": results["PLAYER_NAME"], "Equipo": results["TEAM"], "Línea": results["LINE"], "Proy.": results["PROJ"],
+            "Pick": results["PICK"],
+            "Prob.": np.where(results["PICK"] == "Over", results["P_OVER"], 1 - results["P_OVER"]) * 100,
+            "Puntos": results["PTS"], "Acierto": results["HIT"].map({1.0: True, 0.0: False}), "1 unidad": results["PROFIT"],
+        }),
+        hide_index=True,
+        column_config={
+            "Línea": st.column_config.NumberColumn(format="%.1f"), "Proy.": st.column_config.NumberColumn(format="%.1f"),
+            "Prob.": st.column_config.NumberColumn(format="%.0f%%"), "Acierto": st.column_config.CheckboxColumn(),
+            "1 unidad": st.column_config.NumberColumn(format="%+.2f"),
+        },
+    )
+    st.caption(
+        "Se guarda la última línea que escribiste antes de que terminara el partido, con la proyección de ese momento. "
+        "Si el jugador no jugó, el pick se anula; si anotó justo la línea, se devuelve. El archivo "
+        f"data/props_{CURRENT_SEASON}.csv se queda en tu computadora y no se sube a GitHub."
+    )
 
 
 def slate_game(game_id, game, bank, fraction, saved_odds):
@@ -415,10 +743,10 @@ with update_col:
                 st.error(f"No se pudo actualizar: {e}")
             else:
                 st.rerun()
-    last_game = pd.to_datetime(finished["GAME_DATE"]).max()
+    latest_game = pd.to_datetime(finished["GAME_DATE"]).max()
     downloaded = dt.datetime.fromtimestamp((DATA_DIR / f"games_{CURRENT_SEASON}.csv").stat().st_mtime)
     st.caption(
-        (f"Último partido: {last_game:%d/%m} · " if pd.notna(last_game) else "")
+        (f"Último partido: {latest_game:%d/%m} · " if pd.notna(latest_game) else "")
         + f"descargado el {downloaded:%d/%m %H:%M}"
     )
 if "new_games" in st.session_state:
@@ -428,7 +756,9 @@ if "new_games" in st.session_state:
         icon=":material/check:",
     )
 
-players_tab, prediction_tab, slate_tab, tracking_tab = st.tabs(["Jugadores", "Predicción", "Jornada", "Seguimiento"])
+players_tab, prediction_tab, brief_tab, slate_tab, props_tab, tracking_tab = st.tabs(
+    ["Jugadores", "Predicción", "Ficha", "Jornada", "Props", "Seguimiento"]
+)
 
 with players_tab:
     names = pd.concat([stats[old]["PLAYER_NAME"], stats[new]["PLAYER_NAME"], logs.set_index("PLAYER_ID")["PLAYER_NAME"]])
@@ -713,8 +1043,45 @@ with slate_tab:
             "la alineación sugerida saca a los que están fuera según ESPN, pero no a los que están en duda."
         )
 
+with brief_tab:
+    if (choice := pick_game("brief")) is not None:
+        brief_day, brief_game_id, brief_game = choice
+        game_brief(brief_game_id, brief_game, brief_day)
+
+with props_tab:
+    if props_params is None:
+        st.info("Falta props_model.json: corre `python props.py` para crearlo.")
+    elif (choice := pick_game("props")) is not None:
+        props_day, props_game_id, props_game_row = choice
+        picks = props_game(props_game_id, props_game_row, props_day)
+        if picks.empty:
+            st.caption(
+                "Escribe la línea de puntos de la casa (y sus momios, si no son −110) para ver el pick de cada jugador."
+            )
+        else:
+            st.subheader("Picks del partido")
+            st.dataframe(picks, hide_index=True, column_config={
+                "Línea": st.column_config.NumberColumn(format="%.1f"),
+                "Proy.": st.column_config.NumberColumn(format="%.1f"),
+                "Prob.": st.column_config.NumberColumn(format="%.0f%%", help="Probabilidad del pick según la proyección"),
+                "Momio": st.column_config.NumberColumn(format="%+.0f"),
+                "Momio justo": st.column_config.NumberColumn(
+                    format="%+.0f", help="El que pagaría exactamente esa probabilidad"
+                ),
+                "Ventaja": st.column_config.NumberColumn(
+                    format="%+.1f", help="Probabilidad del pick − la que implica el momio, en puntos"
+                ),
+            })
+        st.caption(
+            "Proyección = 70 % × puntos por minuto × minutos esperados × defensa del rival × ritmo del partido + 30 % × "
+            "sus últimos 10 partidos, más una parte de los puntos de los compañeros que no juegan. En 2023-24 a 2025-26 se "
+            "equivocó 5.2 puntos en promedio (5.35 el promedio de la temporada) y sus probabilidades se cumplieron: cuando "
+            "decía 59 % de over, fue over el 61 %. El pick es el lado más probable. Las casas ajustan sus líneas con mucha "
+            "información: hacen falta cientos de picks para saber si les ganas."
+        )
+    props_record()
+
 with prediction_tab:
-    team_r, player_r, bench_r, home_edge_pts = load_current_ratings()
     date_col, game_col = st.columns([1, 2])
     day = date_col.date_input(
         "Fecha",
@@ -728,10 +1095,7 @@ with prediction_tab:
         st.info("No hay partidos ese día.")
         st.stop()
 
-    matchups = {
-        gid: f"{g.AWAY_TEAM} @ {g.HOME_TEAM}" + (f" · {tip_time(g)}" if tip_time(g) else "")
-        for gid, g in day_games.iterrows()
-    }
+    matchups = {gid: game_label(g) for gid, g in day_games.iterrows()}
     game_id = game_col.selectbox("Partido", matchups, format_func=matchups.get)
     game = day_games.loc[game_id]
 

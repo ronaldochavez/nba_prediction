@@ -170,7 +170,7 @@ def game_players(season):
     """Box scores de temporada regular con las stats y los minutos esperados de cada jugador antes del partido.
 
     RANK ordena a los que jugaron cada partido por minutos esperados: 1 a 5 son la alineación y los
-    BENCH_SIZE siguientes, la banca.
+    BENCH_SIZE siguientes, la banca. EXPECTED_MIN son esos minutos esperados.
     """
     logs = regular_season_logs(season)
     ps, bench = stats_table(prev_season(season))
@@ -181,7 +181,7 @@ def game_players(season):
     prev_min = prior_minutes(season).reindex(logs["PLAYER_ID"]).fillna(10).set_axis(logs.index)
     expected = blend(prev_min, before["MIN"] / gp.replace(0, np.nan), gp, k=1)
     rank = expected.groupby([logs["GAME_ID"], logs["TEAM_ID"]]).rank(ascending=False, method="first")
-    return logs[["GAME_ID", "TEAM_ID", "PLAYER_ID"]].assign(RANK=rank), stats, bench
+    return logs[["GAME_ID", "TEAM_ID", "PLAYER_ID"]].assign(RANK=rank, EXPECTED_MIN=expected), stats, bench
 
 
 def game_lineups(season):

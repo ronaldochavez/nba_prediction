@@ -10,6 +10,7 @@ from nba_api.stats.endpoints import (
     commonallplayers,
     leaguedashplayerstats,
     leaguedashteamstats,
+    leagueseasonmatchups,
     playergamelogs,
     scheduleleaguev2,
 )
@@ -135,6 +136,31 @@ def schedule(season):
     return season_games(season).drop(columns=["HOME_PTS", "AWAY_PTS", "STATUS"])
 
 
+def matchups(season):
+    """Quién defendió a quién en temporada regular: posesiones y puntos de cada atacante contra cada defensor.
+
+    Se baja equipo defensor por equipo defensor (unos 2 minutos) porque sin ese filtro la API no dice con
+    qué equipo defendía cada uno, y un jugador traspasado defendió con dos. Se dejan las parejas con al
+    menos 3 posesiones; los nombres salen de los box scores.
+    """
+    frames = []
+    for team in nba_teams.get_teams():
+        df = fetch(leagueseasonmatchups.LeagueSeasonMatchups, season=season, def_team_id_nullable=team["id"])
+        frames.append(df[df["PARTIAL_POSS"] >= 3].assign(DEF_TEAM_ID=team["id"]))
+    df = pd.concat(frames, ignore_index=True)
+    return df[[
+        "OFF_PLAYER_ID", "DEF_PLAYER_ID", "DEF_TEAM_ID", "GP", "PARTIAL_POSS", "PLAYER_PTS", "MATCHUP_FGM", "MATCHUP_FGA",
+    ]].round({"PARTIAL_POSS": 1})
+
+
+def refresh_matchups(max_age_hours=20):
+    """Vuelve a bajar los matchups de la temporada actual si tienen más de un día; tarda, así que va aparte
+    del botón de la app y lo corre la actualización automática."""
+    path = DATA_DIR / f"matchups_{CURRENT_SEASON}.csv"
+    stale = not path.exists() or time.time() - path.stat().st_mtime > max_age_hours * 3600
+    save("matchups", matchups, CURRENT_SEASON, refresh=stale)
+
+
 def rosters(season):
     df = fetch(commonallplayers.CommonAllPlayers, is_only_current_season=1, season=season)
     df = df[df["TEAM_ID"] != 0].rename(columns={"PERSON_ID": "PLAYER_ID", "DISPLAY_FIRST_LAST": "PLAYER_NAME"})
@@ -254,7 +280,9 @@ def main():
     for season in SEASONS:
         save("game_logs", game_logs, season)
         save("games", games, season)
+    save("matchups", matchups, SEASONS[-1])  # quién defendió a quién la temporada pasada, para la ficha
     refresh_current()
+    refresh_matchups()
 
 
 def refresh_current():
