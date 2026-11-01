@@ -1,8 +1,11 @@
 """Proyecta los puntos de cada equipo y el total del partido con efectividad × posesiones.
 
-Puntos de A contra B = ((ataque A × ritmo A) / 100 + (defensa B × ritmo B) / 100) / 2,
-es decir, el promedio entre lo que A suele anotar por partido y lo que B suele recibir.
-Al local se le suma la mitad del margen medio de los locales y al visitante se le resta.
+Cada equipo parte del promedio de la liga y se le suma lo que su ataque está por encima del promedio
+y lo que la defensa rival está por debajo (lo mismo con el ritmo para las posesiones):
+    posesiones = liga + 0.9 × (ritmo A − liga) + 0.9 × (ritmo B − liga)
+    puntos de A = posesiones × (liga + 0.9 × (ataque A − liga) + 0.9 × (defensa B − liga)) / 100
+Al local se le suma la mitad del margen medio de los locales y al visitante se le resta; el equipo que
+jugó el día anterior anota menos y su rival más.
 Se calcula de dos formas:
 - por equipo: ratings del equipo, mezclando la temporada anterior con lo que va de la actual
   (calculado con los box scores, partido a partido);
@@ -13,10 +16,15 @@ Se calcula de dos formas:
 import pandas as pd
 
 from data import RATING_COLS, SEASONS, load, prev_season
-from model import BENCH_MIN, TEST_SEASONS, blend, game_lineups, regular_season_logs
+from model import BENCH_MIN, TEST_SEASONS, back_to_back, blend, game_lineups, regular_season_logs
 
 SHRINK_POSS = 500  # posesiones de promedio de liga que se suman a las de cada jugador
 TEAM_SUMS = ["PTS", "POSS", "OPP_PTS", "OPP_POSS", "MIN"]
+# Parte de la diferencia con la liga que cuenta: los ratings tienen ruido y con 0.9 la diferencia y el
+# total proyectados quedan en la misma escala que los reales (con 1 se pasan un 10 %). Probado en 2023-24 a 2025-26.
+DEVIATION_WEIGHT = 0.9
+# Puntos de más o de menos cuando un equipo jugó el día anterior, medidos en 2022-23 a 2025-26
+B2B_PTS, B2B_RIVAL_PTS = -1.5, 1.2
 
 
 def player_ratings(season):
@@ -89,12 +97,31 @@ def lineup_ratings(player_ids, players, bench):
     return players.reindex(player_ids).fillna(bench).mean()
 
 
-def project(home, away, home_edge):
-    """Puntos proyectados de local y visitante a partir de sus ratings."""
-    def points(attack, defense):
-        return (attack["OFF_RATING"] * attack["PACE"] / 100 + defense["DEF_RATING"] * defense["PACE"] / 100) / 2
+def project(home, away, league, home_edge, b2b_home=0, b2b_away=0):
+    """Puntos proyectados de local y visitante a partir de sus ratings y de los de la liga.
 
-    return points(home, away) + home_edge / 2, points(away, home) - home_edge / 2
+    `b2b_home` y `b2b_away` valen 1 si ese equipo jugó el día anterior.
+    """
+    def points(attack, defense):
+        poss = league["PACE"] + DEVIATION_WEIGHT * (attack["PACE"] + defense["PACE"] - 2 * league["PACE"])
+        efficiency = league["OFF_RATING"] + DEVIATION_WEIGHT * (
+            attack["OFF_RATING"] - league["OFF_RATING"] + defense["DEF_RATING"] - league["DEF_RATING"]
+        )
+        return poss * efficiency / 100
+
+    return (
+        points(home, away) + home_edge / 2 + B2B_PTS * b2b_home + B2B_RIVAL_PTS * b2b_away,
+        points(away, home) - home_edge / 2 + B2B_PTS * b2b_away + B2B_RIVAL_PTS * b2b_home,
+    )
+
+
+def league_to_date(to_date, games):
+    """Ratings de la liga antes de cada partido: el último rating previo de cada equipo, promediado entre los 30."""
+    rows = to_date.reset_index().merge(games[["GAME_ID", "GAME_DATE"]], on="GAME_ID")
+    by_date = pd.DataFrame({
+        col: rows.pivot_table(index="GAME_DATE", columns="TEAM_ID", values=col).ffill().mean(axis=1) for col in RATING_COLS
+    })
+    return by_date.reindex(games["GAME_DATE"]).reset_index(drop=True)
 
 
 def season_projections(season):
@@ -111,33 +138,44 @@ def season_projections(season):
         keys = zip(games["GAME_ID"], games[f"{side}_TEAM_ID"])
         return pd.DataFrame([lineup_ratings(lineups.get(key, []), players, bench) for key in keys])
 
-    league = teams.mean()
+    league = teams.mean()  # la evaluación por alineación usa solo la temporada anterior
+    b2b_home, b2b_away = back_to_back(games)
     return games, {
-        "Promedio de la liga": project(league, league, home_edge),
-        "Por equipo": project(team_table("HOME"), team_table("AWAY"), home_edge),
-        "Por alineación": project(lineup_table("HOME"), lineup_table("AWAY"), home_edge),
+        "Promedio de la liga": project(league, league, league, home_edge),
+        "Por equipo": project(
+            team_table("HOME"), team_table("AWAY"), league_to_date(to_date, games), home_edge, b2b_home, b2b_away
+        ),
+        "Por alineación": project(lineup_table("HOME"), lineup_table("AWAY"), league, home_edge, b2b_home, b2b_away),
     }
 
 
 def main():
-    team_errors, total_errors = {}, {}
+    projected, real = {}, []
     for season in SEASONS[-TEST_SEASONS:]:
         games, projections = season_projections(season)
+        real.append(games)
         for name, (home, away) in projections.items():
-            team_errors.setdefault(name, []).extend([home - games["HOME_PTS"], away - games["AWAY_PTS"]])
-            total_errors.setdefault(name, []).append(home + away - games["HOME_PTS"] - games["AWAY_PTS"])
+            projected.setdefault(name, []).append(pd.DataFrame({"HOME": home, "AWAY": away}, index=games.index))
+    games = pd.concat(real, ignore_index=True)
+    real_margin = games["HOME_PTS"] - games["AWAY_PTS"]
 
-    results = pd.DataFrame({
-        name: {
-            "Error por equipo": pd.concat(team_errors[name]).abs().mean(),
-            "Error del total": pd.concat(total_errors[name]).abs().mean(),
-            "Sesgo del total": pd.concat(total_errors[name]).mean(),
+    results = {}
+    for name, parts in projected.items():
+        p = pd.concat(parts, ignore_index=True)
+        team_err = pd.concat([p["HOME"] - games["HOME_PTS"], p["AWAY"] - games["AWAY_PTS"]])
+        total_err = p["HOME"] + p["AWAY"] - games["HOME_PTS"] - games["AWAY_PTS"]
+        margin = p["HOME"] - p["AWAY"]
+        results[name] = {
+            "Error por equipo": team_err.abs().mean(),
+            "Error del total": total_err.abs().mean(),
+            "Sesgo del total": total_err.mean(),
+            "Error de la diferencia": (margin - real_margin).abs().mean(),
+            # Cuánto hay que multiplicar la diferencia proyectada para llegar a la real en promedio (1 = escala correcta)
+            "Escala de la diferencia": margin.cov(real_margin) / margin.var() if margin.std() > 1 else None,
         }
-        for name in team_errors
-    }).T
     print(f"Proyección de puntos de {SEASONS[-TEST_SEASONS]} a {SEASONS[-1]}, con lo que se sabía antes de cada partido")
     print("(error = diferencia media en puntos con el marcador real; sesgo negativo = se proyecta de menos)\n")
-    print(results.round(2).to_string())
+    print(pd.DataFrame(results).T.round(2).to_string())
 
 
 if __name__ == "__main__":

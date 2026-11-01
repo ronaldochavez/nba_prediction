@@ -135,15 +135,26 @@ futuros, vuelven a estar disponibles desde su fecha de regreso estimada). Los qu
 
 ## Proyección de puntos
 
-Usa la efectividad ofensiva (puntos anotados por 100 posesiones), la defensiva (puntos recibidos por 100 posesiones) y el ritmo (posesiones por partido):
+Usa la efectividad ofensiva (puntos anotados por 100 posesiones), la defensiva (puntos recibidos por 100 posesiones) y el ritmo (posesiones por partido),
+comparados con el promedio de la liga, como se arman las líneas de las casas de apuestas:
 
 ```
-puntos de A = ((ataque A × ritmo A) / 100 + (defensa B × ritmo B) / 100) / 2  ± ventaja de local / 2
+posesiones  = liga + 0.9 × (ritmo A − liga) + 0.9 × (ritmo B − liga)
+puntos de A = posesiones × (liga + 0.9 × (ataque A − liga) + 0.9 × (defensa B − liga)) / 100  ± ventaja de local / 2
 total       = puntos de A + puntos de B
 ```
 
-Es decir, el promedio entre lo que A suele anotar por partido y lo que B suele recibir. Por ejemplo, MIL @ WAS con los ratings de 2025-26:
-MIL = (112.2 × 98.3 / 100 + 121.5 × 102.5 / 100) / 2 = 117.4 puntos, antes de la ventaja de local.
+Un buen ataque contra una mala defensa anota más que cualquiera de los dos promedios. Por ejemplo, MIL @ WAS con los ratings de 2025-26
+(liga: 114.8 de ataque, 114.7 de defensa, 100.2 de ritmo): posesiones = 100.2 + 0.9 × (98.3 − 100.2) + 0.9 × (102.5 − 100.2) = 100.6;
+MIL = 100.6 × (114.8 + 0.9 × (112.2 − 114.8) + 0.9 × (121.5 − 114.7)) / 100 = 119.2 puntos, antes de la ventaja de local.
+
+- **0.9**: los ratings tienen ruido, y con 0.9 la diferencia y el total proyectados quedan en la misma escala que los reales (con 1 se pasan un 10 %).
+- **Jugó ayer**: el equipo que jugó el día anterior anota 1.5 puntos menos y su rival 1.2 más (medido en 2022-23 a 2025-26).
+- **Liga**: en la app, el promedio de los ratings actuales de los 30 equipos; en la evaluación, el que había antes de cada partido.
+
+Antes la app promediaba lo que A suele anotar con lo que B suele recibir. Eso cortaba a la mitad las diferencias entre equipos: cuando
+proyectaba «gana por 5», el partido terminaba en promedio por 9, y los totales casi no cambiaban entre partidos. El error medio era
+parecido, pero contra el hándicap o el total de una casa de apuestas hacía ver ventajas que solo venían de la fórmula.
 
 Se calcula de dos formas:
 
@@ -154,15 +165,18 @@ Se calcula de dos formas:
 
 Error medio contra el marcador real (2023-24 a 2025-26, con lo que se sabía antes de cada partido):
 
-| Método | Puntos por equipo | Total del partido | Sesgo del total |
-|---|---|---|---|
-| Promedio de la liga (referencia) | 10.3 | 16.0 | −2.0 |
-| **Por equipo** | **9.6** | **15.2** | −1.3 |
-| Por alineación | 10.0 | 15.7 | −1.3 |
+| Método | Puntos por equipo | Total del partido | Sesgo del total | Diferencia | Escala de la diferencia |
+|---|---|---|---|---|---|
+| Promedio de la liga (referencia) | 10.3 | 16.0 | −2.0 | 12.7 | — |
+| **Por equipo** | **9.4** | **14.9** | −1.3 | **11.2** | 1.01 |
+| Por alineación | 9.9 | 15.7 | −0.8 | 11.8 | 1.01 |
+| Fórmula anterior, por equipo | 9.6 | 15.2 | −1.2 | 11.5 | 1.80 |
 
+La escala es por cuánto hay que multiplicar la diferencia proyectada para llegar en promedio a la real: 1 es lo correcto.
 El marcador de un partido de la NBA varía mucho: incluso con los ratings reales de la temporada completa, que no se conocen de antemano,
-el error sería de 9.3 puntos por equipo y 14.8 en el total. El sesgo negativo viene de que la liga anota un poco más cada temporada.
-Para elegir al ganador conviene el porcentaje de victoria (68.4 % de aciertos), no la diferencia del marcador proyectado (65.9 % por equipo).
+el error sería de 9.3 puntos por equipo y 14.8 en el total. El sesgo negativo viene de que la liga anota un poco más cada temporada;
+corregirlo con las temporadas anteriores lo empeoró, porque ese aumento no es constante.
+Para elegir al ganador conviene el porcentaje de victoria (68.4 % de aciertos), no la diferencia del marcador proyectado (66.9 % por equipo).
 
 ## Seguimiento de la temporada
 
@@ -171,9 +185,9 @@ ganador, marcador por equipo y por alineación, y total. Cada predicción usa so
 jugaron, los 5 con más minutos esperados, igual que la evaluación histórica. Con pocos partidos el porcentaje de aciertos varía mucho.
 
 También cuenta cuántas veces se cumple la **diferencia del marcador proyectado**: el equipo que la proyección pone arriba gana por al
-menos esa diferencia. En 2023-24 a 2025-26 pasó en el 58 % de los partidos por equipo y el 55 % por alineación; por equipo, el 54 % con
-diferencias de menos de 3 puntos y el 67 % con diferencias de 6 a 10. Las diferencias proyectadas son chicas (de 3 a 3.5 puntos en promedio)
-porque la fórmula promedia el ataque de un equipo con la defensa del otro, así que no equivalen al hándicap de una casa de apuestas.
+menos esa diferencia. En 2023-24 a 2025-26 pasó en el 51 % de los partidos por equipo y el 50 % por alineación, parejo con diferencias
+chicas y grandes: cerca de la mitad, que es lo que pasa cuando la diferencia proyectada no se queda corta ni se pasa. Con la fórmula
+anterior pasaba el 58 %, porque proyectaba diferencias de la mitad de su tamaño real.
 
 Debajo, **modelo contra el mercado**: los momios que escribiste en Jornada antes de cada partido, con la probabilidad que daba el modelo en ese
 momento. Compara los aciertos y el error de las probabilidades (Brier) del modelo y de la casa, a la que se le quita su margen cuando están los

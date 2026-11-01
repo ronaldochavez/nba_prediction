@@ -13,7 +13,7 @@ from model import (
     BENCH_COLS, BENCH_SIZE, ELO_MEAN, K_GAMES, MODEL_PATH, back_to_back, contributions, current_stats, elo_ratings,
     expected_minutes, game_features, regular_season_logs, team_features, weights,
 )
-from points import current_ratings, lineup_ratings, project
+from points import B2B_PTS, B2B_RIVAL_PTS, DEVIATION_WEIGHT, current_ratings, lineup_ratings, project
 from tracking import projected_margin, season_tracking, summary
 
 LABELS = {
@@ -575,9 +575,8 @@ with tracking_tab:
             f"{CURRENT_SEASON}). Con pocos partidos el porcentaje de aciertos varía mucho: en las temporadas 2023-24 "
             "a 2025-26 fue de 68.4 %. "
             f"La diferencia proyectada por alineación se cumplió en {s['LINEUP diferencia']:.0%} de los partidos; en "
-            "2023-24 a 2025-26, 58 % por equipo (67 % con diferencias de 6 a 10 puntos) y 55 % por alineación. "
-            "Las diferencias proyectadas son chicas (de 3 a 3.5 puntos en promedio) porque la fórmula promedia el ataque "
-            "de un equipo con la defensa del otro, así que no equivalen al hándicap de una casa de apuestas."
+            "2023-24 a 2025-26, 51 % por equipo y 50 % por alineación: cerca de la mitad, que es lo que pasa cuando la "
+            "diferencia proyectada no se queda corta ni se pasa. Con pocos partidos este porcentaje varía mucho."
         )
 
     st.subheader("Modelo contra el mercado")
@@ -799,9 +798,13 @@ with prediction_tab:
         )
 
         st.subheader("Marcador proyectado")
-        by_team = project(team_r.loc[game.HOME_TEAM_ID], team_r.loc[game.AWAY_TEAM_ID], home_edge_pts)
+        league, b2b = team_r.mean(), b2b_table.loc[game_id]
+        by_team = project(
+            team_r.loc[game.HOME_TEAM_ID], team_r.loc[game.AWAY_TEAM_ID], league, home_edge_pts, b2b["HOME"], b2b["AWAY"]
+        )
         by_lineup = project(
-            lineup_ratings(home_ids, player_r, bench_r), lineup_ratings(away_ids, player_r, bench_r), home_edge_pts
+            lineup_ratings(home_ids, player_r, bench_r), lineup_ratings(away_ids, player_r, bench_r), league,
+            home_edge_pts, b2b["HOME"], b2b["AWAY"],
         )
         score = pd.DataFrame(
             [[away, home, away + home] for home, away in (by_team, by_lineup)],
@@ -812,11 +815,13 @@ with prediction_tab:
             score, width="content", column_config={c: st.column_config.NumberColumn(format="%.1f") for c in score.columns}
         )
         st.caption(
-            "Puntos = ((ataque propio × ritmo propio) / 100 + (defensa rival × ritmo rival) / 100) / 2 ± ventaja de "
-            f"local, con los ratings de {LAST} mezclados con lo que va de {CURRENT_SEASON}. "
-            "«Por equipo» usa los ratings de cada equipo y no cambia con la alineación; «Por alineación» promedia a "
-            "los 5 jugadores elegidos. En partidos pasados el error típico fue de unos 10 puntos por equipo y 15 en "
-            "el total."
+            "Cada equipo parte del promedio de la liga y suma lo que su ataque está por encima del promedio y lo que la "
+            f"defensa rival está por debajo (las posesiones, igual con el ritmo), contando el {DEVIATION_WEIGHT:.0%} de esas "
+            f"diferencias; ± ventaja de local, y quien jugó ayer anota {-B2B_PTS:.1f} menos y su rival {B2B_RIVAL_PTS:.1f} "
+            f"más. Ratings de {LAST} mezclados con lo que va de {CURRENT_SEASON}. «Por equipo» usa los ratings de cada "
+            "equipo y no cambia con la alineación; «Por alineación» promedia a los 5 jugadores elegidos. En partidos "
+            "pasados el error típico fue de unos 9.4 puntos por equipo, 15 en el total y 11 en la diferencia, y la "
+            "diferencia proyectada se cumplió la mitad de las veces: no se queda corta ni se pasa."
         )
 
         st.subheader("¿Por qué este porcentaje?")
