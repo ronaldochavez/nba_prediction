@@ -1,9 +1,33 @@
 import datetime as dt
+import sys
+from pathlib import Path
 
 import joblib
 import numpy as np
 import pandas as pd
 import streamlit as st
+
+
+@st.cache_resource(show_spinner=False)
+def loaded_sources():
+    """Fechas de los .py del proyecto que hay en memoria, compartidas por todas las sesiones abiertas."""
+    return {}
+
+
+def forget_stale_modules():
+    """Olvida los módulos del proyecto si algún .py cambió desde la última vez. Streamlit Cloud baja cada push sin
+    reiniciar Python y, si nadie tiene la app abierta, los módulos se quedan en memoria con la versión vieja: el
+    app.py nuevo con un teams.py viejo da ImportError, y si no falla corre con el código anterior sin avisar."""
+    sources = {p.stem: p.stat().st_mtime for p in Path(__file__).parent.glob("*.py")}
+    seen = loaded_sources()
+    if seen != sources:
+        for name in sources:
+            sys.modules.pop(name, None)
+        seen.clear()
+        seen.update(sources)
+
+
+forget_stale_modules()  # antes de importar los módulos del proyecto
 
 from betting import (
     KELLY_FRACTIONS, american, decimal_odds, kelly, load_odds, market_summary, odds_results, odds_text, save_odds,
