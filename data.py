@@ -13,6 +13,7 @@ from nba_api.stats.endpoints import (
     leagueseasonmatchups,
     playergamelogs,
     scheduleleaguev2,
+    shotchartdetail,
 )
 from nba_api.stats.static import teams as nba_teams
 
@@ -99,6 +100,26 @@ def game_logs(season):
         "PLAYER_ID", "PLAYER_NAME", "TEAM_ID", "TEAM_ABBREVIATION", "GAME_ID", "GAME_DATE", "MATCHUP", "WL",
         "SEASON_TYPE", "MIN", "PTS", "REB", "AST", "STL", "BLK", "TOV", "FGM", "FGA", "FG3M", "FG3A", "FTA", "OREB",
         "PLUS_MINUS",
+    ]]
+
+
+def shots(season):
+    """Cada tiro de campo de la liga en temporada regular y playoffs, con su lugar en la cancha (ver shot_chart.py).
+
+    Con team_id y player_id en 0 la API devuelve todos en una sola llamada. Cuadran con los box scores.
+    """
+    frames = [
+        fetch(
+            shotchartdetail.ShotChartDetail, team_id=0, player_id=0, season_nullable=season,
+            context_measure_simple="FGA", season_type_all_star=season_type,
+        )
+        for season_type in ["Regular Season", "Playoffs"]
+    ]
+    df = pd.concat(frames, ignore_index=True).sort_values(["GAME_ID", "GAME_EVENT_ID"])
+    df["SHOT_PTS"] = df["SHOT_TYPE"].str[0].astype(int)  # «2PT Field Goal» o «3PT Field Goal»
+    return df[[
+        "GAME_ID", "PLAYER_ID", "PERIOD", "MINUTES_REMAINING", "SECONDS_REMAINING", "SHOT_PTS", "LOC_X", "LOC_Y",
+        "SHOT_MADE_FLAG",
     ]]
 
 
@@ -292,7 +313,7 @@ def refresh_current():
     """
     failed = []
     for name, download in [
-        ("game_logs", game_logs), ("games", games), ("player_ratings", player_ratings),
+        ("game_logs", game_logs), ("shots", shots), ("games", games), ("player_ratings", player_ratings),
         ("schedule", schedule), ("rosters", rosters), ("injuries", injuries),  # lesiones después de las plantillas
         ("lineups", lineups),
     ]:

@@ -17,7 +17,9 @@ contra los momios de la casa.
 
 - **Jugadores**: compara las stats por partido de un jugador entre 2024-25 y 2025-26, y muestra su **forma reciente**:
   promedio de los últimos 5 y 10 partidos (pretemporada, temporada regular y playoffs), la tendencia frente a su promedio
-  de la temporada pasada, una vista **por 36 minutos** y el detalle partido a partido.
+  de la temporada pasada, una vista **por 36 minutos** y el detalle partido a partido. El **mapa de tiros** muestra de dónde tiró en toda la
+  temporada 2026-27 (mapa de calor o cada tiro) y en el partido que elijas, con encestados y fallados, y cuadra con los box scores.
+  Arriba de cada mapa se desglosan sus puntos: de 2, de 3 y de tiros libres, que no salen en el mapa porque la NBA no les da lugar en la cancha.
 - **Predicción**: eliges una fecha y un partido del calendario 2026-27, armas la alineación de cada equipo y ves el porcentaje de victoria,
   su **momio justo**, los puntos proyectados de cada equipo y el total del partido. Por defecto se eligen los **titulares que publica la NBA** (esperados
   durante el día y confirmados unos 30 minutos antes del partido) o, si aún no hay, los 5 jugadores con más minutos esperados que no
@@ -317,6 +319,7 @@ La computadora tiene que quedarse prendida, con la sesión de Windows abierta y 
 ├── brief.py            # Ficha de cada partido: defensores, bajas, cansancio e historial
 ├── teams.py            # Logo y color de cada equipo y foto de cada jugador
 ├── props.py            # Puntos proyectados por jugador para props y su evaluación → props_model.json
+├── shot_chart.py       # Mapas de tiros: media cancha, mapa de calor y cada tiro
 ├── betting.py          # Momios, tamaño de apuesta (criterio de Kelly) y registro de momios
 ├── app.py              # App de Streamlit
 ├── auto_update.py      # Actualización automática de los datos y push a GitHub
@@ -337,6 +340,7 @@ salvo las lesiones, que vienen de ESPN (stats.nba.com no las publica):
 | `player_ratings_<temporada>.csv` | Ratings ofensivo, defensivo y ritmo del equipo con cada jugador en cancha (2019-20 a 2026-27) |
 | `team_ratings_<temporada>.csv` | Ratings ofensivo, defensivo y ritmo de cada equipo (2019-20 a 2025-26) |
 | `game_logs_<temporada>.csv` | Box score de cada jugador en cada partido, con pretemporada y playoffs (2021-22 a 2026-27) |
+| `shots_2026-27.csv` | Cada tiro de campo de la liga en temporada regular y playoffs: lugar en la cancha, valor, momento y si entró |
 | `games_<temporada>.csv` | Local, visitante y marcador de cada partido jugado (2021-22 a 2026-27) |
 | `schedule_2026-27.csv` | Calendario de la temporada actual, con la hora de cada partido |
 | `rosters_2026-27.csv` | Plantillas actuales |

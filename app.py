@@ -40,6 +40,7 @@ from model import (
 from brief import absence_split, last_game, meetings, record, star_defenders
 from points import B2B_PTS, B2B_RIVAL_PTS, DEVIATION_WEIGHT, current_ratings, lineup_ratings, project
 from props import REGULAR_MIN, load_params, load_props, p_over, player_projections, props_results, save_prop
+from shot_chart import dot_map, heat_map, shot_summary
 from teams import TEAMS, headshot_url, logo_url
 from tracking import projected_margin, season_tracking, summary
 
@@ -66,7 +67,7 @@ st.set_page_config(page_title="Predicción NBA", page_icon=":material/sports_bas
 # En Markdown los logos saldrían de su tamaño original; así miden lo que la letra en cualquier texto
 st.html('<style>img[src*="cdn.nba.com/logos"] { height: 1.3em; vertical-align: -0.3em; }</style>')
 # Archivos que se vuelven a bajar con cada actualización (los momios guardados no cuentan)
-DAILY_FILES = ["game_logs", "games", "player_ratings", "schedule", "rosters", "injuries", "lineups", "matchups"]
+DAILY_FILES = ["game_logs", "shots", "games", "player_ratings", "schedule", "rosters", "injuries", "lineups", "matchups"]
 
 
 @st.cache_resource
@@ -120,6 +121,12 @@ def load_regular_logs():
 
 
 @st.cache_data
+def load_player_shots(player_id):
+    shots = load_csv("shots", CURRENT_SEASON)
+    return shots[shots["PLAYER_ID"] == player_id]
+
+
+@st.cache_data
 def load_game_context():
     """Elo actual de cada equipo y si cada equipo de cada partido del calendario jugó el día anterior."""
     schedule = load("schedule", CURRENT_SEASON)
@@ -164,6 +171,14 @@ logs = pd.concat([load_csv("game_logs", new), load_csv("game_logs", CURRENT_SEAS
 def recent_games(player_id, n):
     """Últimos n partidos del jugador (pretemporada, temporada regular y playoffs) desde la temporada pasada."""
     return logs[logs["PLAYER_ID"] == player_id].sort_values("GAME_DATE", ascending=False).head(n)
+
+
+def season_box_scores(player_id):
+    """Box score de cada partido del jugador en la temporada actual, del más reciente al más viejo. Sin pretemporada,
+    igual que los tiros."""
+    games = load_csv("game_logs", CURRENT_SEASON)
+    games = games[(games["PLAYER_ID"] == player_id) & (games["SEASON_TYPE"] != "Pre Season")]
+    return games.sort_values("GAME_DATE", ascending=False).set_index("GAME_ID")
 
 
 def season_average(player_id):
@@ -1008,6 +1023,44 @@ with players_tab:
                 hide_index=True,
                 column_config={"Minutos": st.column_config.NumberColumn(format="%.0f"), "Rival": LOGO_COLUMN},
             )
+
+    section("scatter_plot", "Mapa de tiros")
+    player_shots = load_player_shots(player_id)
+    box_scores = season_box_scores(player_id)
+    shot_labels = {  # «01/11 · OKC vs. HOU · 31 pts», solo de los partidos en los que tiró
+        g.Index: f"{pd.Timestamp(g.GAME_DATE):%d/%m} · {g.MATCHUP} · {g.PTS:.0f} pts"
+        for g in box_scores[box_scores.index.isin(player_shots["GAME_ID"])].itertuples()
+    }
+    if not shot_labels:
+        st.info(f"No tiene tiros en {CURRENT_SEASON}.")
+    else:
+        player_shots = player_shots.assign(GAME_LABEL=player_shots["GAME_ID"].map(shot_labels))
+        made_color, _, missed_color = palette()
+        # Los mapas miden lo mismo que en la computadora: en un celular se encogen completos, sin cortarse ni deformarse
+        st.html('<style>.st-key-shot_maps :is(.vega-embed, svg) { max-width: 100%; height: auto; }</style>')
+        season_col, game_col = st.container(key="shot_maps").columns(2)
+        with season_col:
+            shot_view = st.segmented_control(
+                "Toda la temporada", ["Mapa de calor", "Cada tiro"], default="Mapa de calor", required=True, key="shots_view",
+            )
+            st.caption(
+                f"{len(box_scores)} partido{'s' if len(box_scores) != 1 else ''}: "
+                f"{shot_summary(player_shots, box_scores['PTS'].sum())}"
+            )
+            st.altair_chart(
+                heat_map(player_shots, st.context.theme.type == "dark") if shot_view == "Mapa de calor"
+                else dot_map(player_shots, made_color, missed_color),
+                width="content",
+            )
+        with game_col:
+            shot_game = st.selectbox("Partido", list(shot_labels), format_func=shot_labels.get, key=f"shots_game_{player_id}")
+            game_shots = player_shots[player_shots["GAME_ID"] == shot_game]
+            st.caption(shot_summary(game_shots, box_scores.loc[shot_game, "PTS"]))
+            st.altair_chart(dot_map(game_shots, made_color, missed_color), width="content")
+        st.caption(
+            f"Tiros de campo de {CURRENT_SEASON} en temporada regular y playoffs, sin tiros libres. El aro va arriba y los "
+            "lados quedan como los ve el que tira. En el mapa de calor, entre más intenso, más tiros salieron de ahí."
+        )
 
 # Van antes que Predicción en el código porque esa pestaña puede cortar la ejecución con st.stop()
 with tracking_tab:
