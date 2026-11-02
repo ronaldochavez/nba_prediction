@@ -19,11 +19,11 @@ contra los momios de la casa.
   promedio de los últimos 5 y 10 partidos (pretemporada, temporada regular y playoffs), la tendencia frente a su promedio
   de la temporada pasada, una vista **por 36 minutos** y el detalle partido a partido.
 - **Predicción**: eliges una fecha y un partido del calendario 2026-27, armas la alineación de cada equipo y ves el porcentaje de victoria,
-  los puntos proyectados de cada equipo y el total del partido. Por defecto se eligen los **titulares que publica la NBA** (esperados
+  su **momio justo**, los puntos proyectados de cada equipo y el total del partido. Por defecto se eligen los **titulares que publica la NBA** (esperados
   durante el día y confirmados unos 30 minutos antes del partido) o, si aún no hay, los 5 jugadores con más minutos esperados que no
   están **fuera por lesión**; debajo de cada selector se listan los lesionados (fuera y en duda) con su regreso estimado y los inactivos oficiales.
   Un **cara a cara** muestra las stats clave de toda la plantilla disponible de cada equipo (temporada, últimos 5 o últimos 10 partidos, también
-  por 36 minutos): primero los 5 elegidos con su promedio y luego la banca con el suyo. Debajo, qué datos inclinan la balanza hacia cada equipo.
+  por 36 minutos): primero los 5 elegidos con su promedio y luego la banca con el suyo, y los puntos proyectados de cada jugador para ese partido. Debajo, qué datos inclinan la balanza hacia cada equipo.
 - **Ficha**: la historia de un partido en una página, para armar un avance: quién defendió a las estrellas la temporada pasada y
   cuántos de esos defensores hoy están lesionados o en otro equipo, quién sube en los partidos sin los lesionados, el cansancio
   (jugó ayer y quiénes jugaron 30+ minutos) y el historial entre los dos equipos.
@@ -35,6 +35,9 @@ contra los momios de la casa.
 - **Seguimiento**: compara cada predicción con el resultado real de los partidos ya jugados de 2026-27, y el modelo contra el mercado
   en los partidos donde guardaste momios.
 - **Actualizar datos**: el botón de arriba descarga lo de la temporada actual sin cerrar la app.
+- **Logos y colores**: cada equipo aparece con su logo y cada partido con una franja de los colores de sus dos equipos. El tema tiene
+  modo claro y oscuro (`.streamlit/config.toml`) y sigue al navegador. Los logos los carga el navegador desde el CDN de la NBA, así que
+  no hay que descargarlos y también funcionan en Streamlit Cloud. Lo positivo sale en verde y lo negativo en rojo.
 
 ![Pestaña Jugadores](docs/jugadores.png)
 
@@ -182,6 +185,9 @@ El marcador de un partido de la NBA varía mucho: incluso con los ratings reales
 el error sería de 9.3 puntos por equipo y 14.8 en el total. El sesgo negativo viene de que la liga anota un poco más cada temporada;
 corregirlo con las temporadas anteriores lo empeoró, porque ese aumento no es constante.
 Para elegir al ganador conviene el porcentaje de victoria (68.4 % de aciertos), no la diferencia del marcador proyectado (66.9 % por equipo).
+En 2023-24 a 2025-26, con un modelo entrenado solo con temporadas anteriores, el porcentaje y el marcador por equipo no coincidieron en el
+favorito en 500 de 3,690 partidos (14 %), y en esos ganó el favorito del porcentaje el 56 %. Con el marcador por alineación no coincidieron
+en 874 (24 %), y ganó el favorito del porcentaje el 64 %. Por eso las tarjetas de Predicción muestran los puntos por equipo y avisan cuando no coinciden.
 
 ## Seguimiento de la temporada
 
@@ -308,6 +314,7 @@ La computadora tiene que quedarse prendida, con la sesión de Windows abierta y 
 ├── points.py           # Proyección de puntos y su evaluación
 ├── tracking.py         # Predicciones contra resultados de la temporada actual
 ├── brief.py            # Ficha de cada partido: defensores, bajas, cansancio e historial
+├── teams.py            # Logo y color de cada equipo
 ├── props.py            # Puntos proyectados por jugador para props y su evaluación → props_model.json
 ├── betting.py          # Momios, tamaño de apuesta (criterio de Kelly) y registro de momios
 ├── app.py              # App de Streamlit

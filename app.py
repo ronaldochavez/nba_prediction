@@ -16,6 +16,7 @@ from model import (
 from brief import absence_split, last_game, meetings, record, star_defenders
 from points import B2B_PTS, B2B_RIVAL_PTS, DEVIATION_WEIGHT, current_ratings, lineup_ratings, project
 from props import REGULAR_MIN, load_params, load_props, p_over, player_projections, props_results, save_prop
+from teams import TEAMS, logo_url
 from tracking import projected_margin, season_tracking, summary
 
 LABELS = {
@@ -32,8 +33,12 @@ LAST, OLDER = prev_season(CURRENT_SEASON), prev_season(prev_season(CURRENT_SEASO
 # Stats del cara a cara, con nombres cortos para que las dos tablas entren lado a lado
 FACE_COLS = {"MIN": "Min", "PTS": "Pts", "REB": "Reb", "AST": "Ast", "STL": "Rob", "PLUS_MINUS": "+/-", "FG_PCT": "FG%"}
 FORM_VIEWS = {"Últimos 5": 5, "Últimos 10": 10}
+AVERAGE_ROWS = ["Promedio alineación", "Promedio banca"]
+LOGO_COLUMN = st.column_config.ImageColumn(" ", width=36)
 
 st.set_page_config(page_title="Predicción NBA", page_icon=":material/sports_basketball:", layout="wide")
+# En Markdown los logos saldrían de su tamaño original; así miden lo que la letra en cualquier texto
+st.html('<style>img[src*="cdn.nba.com/logos"] { height: 1.3em; vertical-align: -0.3em; }</style>')
 # Archivos que se vuelven a bajar con cada actualización (los momios guardados no cuentan)
 DAILY_FILES = ["game_logs", "games", "player_ratings", "schedule", "rosters", "injuries", "lineups", "matchups"]
 
@@ -143,11 +148,12 @@ def season_average(player_id):
     return pd.Series(np.nan, index=STAT_COLS + ["GP"])
 
 
-def face_to_face(lineup_ids, roster_ids, labels, view, per36):
+def face_to_face(lineup_ids, roster_ids, labels, view, per36, proj):
     """Stats clave de todo el equipo en la vista elegida: la alineación con su promedio y la banca con el suyo.
 
     El promedio de la alineación es simple, como en el modelo; el de la banca pondera por minutos jugados
-    para que un jugador con 2 minutos no pese igual que uno con 20.
+    para que un jugador con 2 minutos no pese igual que uno con 20. `proj` son los puntos proyectados de
+    cada jugador para este partido (props.py), iguales en todas las vistas.
     """
     rows = []
     for pid in lineup_ids + [p for p in roster_ids if p not in lineup_ids]:
@@ -158,10 +164,12 @@ def face_to_face(lineup_ids, roster_ids, labels, view, per36):
             avg = averages(games, per36) if len(games) else pd.Series(np.nan, index=STAT_COLS)
             rows.append({
                 "Jugador": labels[pid], "PJ": len(games), **avg[list(FACE_COLS)].to_dict(),
-                "Tend.": avg["PTS"] - base["PTS"],
+                "Tend.": avg["PTS"] - base["PTS"], "Proy.": proj.get(pid, np.nan),
             })
         else:
-            rows.append({"Jugador": labels[pid], "PJ": base["GP"], **base[list(FACE_COLS)].to_dict()})
+            rows.append({
+                "Jugador": labels[pid], "PJ": base["GP"], **base[list(FACE_COLS)].to_dict(), "Proy.": proj.get(pid, np.nan),
+            })
     def weighted(col, w):
         return (col * w).sum() / (w[col.notna()].sum() or np.nan)
 
@@ -176,6 +184,7 @@ def face_to_face(lineup_ids, roster_ids, labels, view, per36):
     ])
     table.loc[["Promedio alineación", "Promedio banca"], "PJ"] = np.nan
     table["FG_PCT"] *= 100
+    table.insert(table.columns.get_loc("PTS") + 1, "Proy.", table.pop("Proy."))  # junto a los puntos, para compararlos
     return table.rename(columns=FACE_COLS)
 
 
@@ -206,6 +215,62 @@ upcoming = dates[dates >= today]
 first_day = upcoming.min() if len(upcoming) else dates.min()
 
 
+def palette():
+    """Colores de texto para bien, cuidado y mal, legibles con el tema activo."""
+    return ("#4ADE80", "#FB923C", "#FF6B6B") if st.context.theme.type == "dark" else ("#15803D", "#C2410C", "#C8102E")
+
+
+def team_logo(abbr):
+    """URL del logo para el tema activo; None si no es un equipo (partidos todavía sin definir)."""
+    return logo_url(abbr, st.context.theme.type == "dark") if abbr in TEAMS else None
+
+
+def team_label(abbr):
+    """Abreviatura con su logo chiquito, para etiquetas y Markdown."""
+    if abbr not in TEAMS:
+        return "Por definir" if pd.isna(abbr) else str(abbr)
+    return f"![]({team_logo(abbr)}) {abbr}"
+
+
+def section(icon, title):
+    st.subheader(f":primary[:material/{icon}:] {title}")
+
+
+def colored(value, text):
+    """Texto en verde si `value` no es negativo y en rojo si lo es, para Markdown."""
+    return f":{'green' if value >= 0 else 'red'}[{text}]"
+
+
+def win_value(p):
+    """Porcentaje de victoria; el del favorito va en verde."""
+    return f":green[{p:.0%}]" if p >= 0.5 else f"{p:.0%}"
+
+
+def signed(table, cols, skip=()):
+    """Tabla con los números de `cols` en verde si son positivos y en rojo si son negativos, menos las filas `skip`."""
+    up, _, down = palette()
+    return table.style.map(
+        lambda v: f"color: {up}" if v > 0 else f"color: {down}" if v < 0 else "",
+        subset=(~table.index.isin(skip), table.columns.intersection(cols)),
+    )
+
+
+def face_style(table):
+    """Cara a cara con la tendencia en verde o rojo y los promedios resaltados."""
+    tint = "background-color: rgba(232, 89, 12, 0.16)"
+    return signed(table, ["Tend."]).map(lambda _: tint, subset=(AVERAGE_ROWS, table.columns)).map_index(
+        lambda v: tint if v in AVERAGE_ROWS else ""
+    )
+
+
+def defenders_style(table):
+    """Defensores con la columna «Hoy» en verde si juega, naranja si está en duda y rojo si no está."""
+    ok, doubt, gone = palette()
+    return table.style.map(
+        lambda v: f"color: {ok if v.startswith('Disponible') else doubt if v.startswith('Duda') else gone}", subset=["Hoy"]
+    )
+
+
 def tag(player_id):
     if player_id in last_ids:
         return ""
@@ -234,7 +299,7 @@ def injury_status(player_id, day):
 def injury_note(roster):
     """Bajas de una plantilla: «Fuera: Nombre (Knee, vuelve ~20/11). En duda: Nombre (Ankle). Inactivos: Nombre.»"""
     groups = []
-    for label, status in [("Fuera", "fuera"), ("En duda", "duda"), ("Inactivos", "inactivo")]:
+    for label, status in [(":red[**Fuera**]", "fuera"), (":orange[**En duda**]", "duda"), (":gray[**Inactivos**]", "inactivo")]:
         names = []
         for pid, name in roster.loc[roster["STATUS"] == status, ["PLAYER_ID", "PLAYER_NAME"]].itertuples(index=False):
             detail = []
@@ -296,7 +361,7 @@ def pick_lineup(container, side, team_id, team, key, day, game_id):
     }
     available = available_ids(roster)
     ids = container.multiselect(
-        f"{side}: {team}",
+        f"{side}: {team_label(team)}",
         labels,
         default=default_lineup(roster, starters)[0],
         format_func=labels.get,
@@ -305,8 +370,9 @@ def pick_lineup(container, side, team_id, team, key, day, game_id):
         key=key + "".join(f"_{pid}" for pid in sorted(starters)),
     )
     lineup_note = (
-        "Titulares confirmados por la NBA." if confirmed
-        else "Titulares esperados según la NBA; se confirman unos 30 minutos antes del partido." if starters
+        ":green-badge[:material/check_circle: Titulares confirmados por la NBA]" if confirmed
+        else ":blue-badge[:material/schedule: Titulares esperados según la NBA] Se confirman unos 30 minutos antes del partido."
+        if starters
         else ""
     )
     if note := " ".join(filter(None, [lineup_note, injury_note(roster)])):
@@ -344,12 +410,44 @@ def tired_teams(game_id, game):
 
 
 def game_label(game):
-    return f"{game.AWAY_TEAM} @ {game.HOME_TEAM}" + (f" · {tip_time(game)}" if tip_time(game) else "")
+    return f"{team_label(game.AWAY_TEAM)} @ {team_label(game.HOME_TEAM)}" + (f" · {tip_time(game)}" if tip_time(game) else "")
+
+
+def matchup_banner(game_id, game):
+    """Franja del partido con el logo y el color de cada equipo; en medio, la hora o el marcador final."""
+    def side(abbr, role, reverse=False):
+        logo = (
+            f'<img src="{logo_url(abbr)}" alt="" style="height:2.2rem;width:2.2rem;padding:.2rem;background:#fff;'
+            'border-radius:50%">' if abbr in TEAMS else ""
+        )
+        return (
+            f'<div style="flex:1;display:flex;flex-direction:{"row-reverse" if reverse else "row"};align-items:center;gap:.6rem;'
+            f'padding:.5rem .8rem;background:{TEAMS[abbr][1] if abbr in TEAMS else "#475569"};color:#fff">{logo}'
+            f'<div style="line-height:1.2;text-align:{"right" if reverse else "left"}">'
+            f'<b style="font-size:1.15rem">{abbr if abbr in TEAMS else "Por definir"}</b><br>'
+            f'<span style="font-size:.72rem">{role}</span></div></div>'
+        )
+
+    if game_id in finished.index:
+        result = finished.loc[game_id]
+        center = f'{result.AWAY_PTS:.0f}-{result.HOME_PTS:.0f}<br><span style="font-size:.68rem;font-weight:400">Final</span>'
+    else:
+        center = tip_time(game) or "@"
+    st.html(
+        '<div style="display:flex;align-items:stretch;border-radius:.5rem;overflow:hidden">'
+        + side(game.AWAY_TEAM, "Visitante")
+        + '<div style="display:flex;flex-direction:column;justify-content:center;padding:0 .9rem;background:#fff;color:#14213D;'
+        f'font-weight:700;text-align:center;line-height:1.2">{center}</div>'
+        + side(game.HOME_TEAM, "Local", reverse=True)
+        + "</div>"
+    )
+    if tired := tired_teams(game_id, game):
+        st.markdown(f":orange-badge[:material/bedtime: Jugó ayer: {', '.join(tired)}]")
 
 
 def pick_game(key):
     """Selector de fecha y partido; devuelve (fecha, GAME_ID, partido), o None si ese día no hay partidos."""
-    date_col, game_col = st.columns([1, 2])
+    date_col, game_col = st.columns([1, 5])
     day = date_col.date_input(
         "Fecha", value=first_day, min_value=dates.min(), max_value=dates.max(), format="DD/MM/YYYY", key=f"{key}_day"
     )
@@ -358,7 +456,10 @@ def pick_game(key):
         st.info("No hay partidos ese día.")
         return None
     labels = {gid: game_label(g) for gid, g in day_games.iterrows()}
-    game_id = game_col.selectbox("Partido", labels, format_func=labels.get, key=f"{key}_game")
+    # Pills porque las opciones de un selectbox no aceptan imágenes; cada día con su propia selección
+    game_id = game_col.pills(
+        "Partido", list(labels), format_func=labels.get, default=next(iter(labels)), required=True, key=f"{key}_game_{day}"
+    )
     return day, game_id, day_games.loc[game_id]
 
 
@@ -393,7 +494,7 @@ def where_now(player_id, opp_roster):
 
 def defenders_block(star_id, team_abbr, opp_id, opp_abbr, opp_roster):
     """Quién defendió a una estrella en el rival la temporada pasada (y esta), y cuántos de ellos ya no están."""
-    st.markdown(f"**{player_names.get(star_id, star_id)} ({team_abbr})**")
+    st.markdown(f"**{player_names.get(star_id, star_id)} ({team_label(team_abbr)})**")
     status = lambda pid: where_now(pid, opp_roster)  # noqa: E731
     config = {
         "Posesiones": st.column_config.NumberColumn(format="%.0f"),
@@ -405,7 +506,7 @@ def defenders_block(star_id, team_abbr, opp_id, opp_abbr, opp_roster):
         st.caption(f"No enfrentó a {opp_abbr} en {LAST}.")
     else:
         gone = ~table["Hoy"].str.startswith(("Disponible", "Duda"))
-        st.dataframe(table.head(8), hide_index=True, column_config=config)
+        st.dataframe(defenders_style(table.head(8)), hide_index=True, column_config=config)
         total, gone_poss = table["Posesiones"].sum(), table.loc[gone, "Posesiones"].sum()
         st.caption(
             f"{LAST}: {total:.0f} posesiones y {table['Puntos'].sum():.0f} puntos contra {opp_abbr}. Los que hoy no están "
@@ -415,11 +516,12 @@ def defenders_block(star_id, team_abbr, opp_id, opp_abbr, opp_roster):
     current = star_defenders(star_id, opp_id, load_csv("matchups", CURRENT_SEASON), player_names, status)
     if not current.empty:
         st.caption(f"Esta temporada contra {opp_abbr}:")
-        st.dataframe(current.head(5), hide_index=True, column_config=config)
+        st.dataframe(defenders_style(current.head(5)), hide_index=True, column_config=config)
 
 
 def game_brief(game_id, game, day):
     """La ficha de un partido: récords, predicción, estrellas y sus defensores, bajas, cansancio e historial."""
+    matchup_banner(game_id, game)
     sides = game_sides(game)
     team_rosters = {team_id: team_roster(team_id, day, game_id) for team_id, *_ in sides}
     played_before = finished[pd.to_datetime(finished["GAME_DATE"]).dt.date < day].reset_index()
@@ -435,8 +537,9 @@ def game_brief(game_id, game, day):
     for col, (team_id, abbr, _, _) in zip(st.columns(2), sides):
         rec, last5 = record(team_id, played_before)
         col.metric(
-            f"{abbr} · récord {rec}" + (f" · últimos {len(last5)}: {last5}" if last5 else ""), f"{probs[team_id]:.0%}",
-            f"{points[team_id]:.0f} puntos proyectados", delta_color="off", delta_arrow="off", border=True,
+            f"{team_label(abbr)} · récord {rec}" + (f" · últimos {len(last5)}: {last5}" if last5 else ""),
+            win_value(probs[team_id]),
+            f"{points[team_id]:.0f} puntos proyectados", delta_color="orange", delta_arrow="off", border=True,
         )
     tired = tired_teams(game_id, game)
     st.caption(
@@ -450,7 +553,7 @@ def game_brief(game_id, game, day):
         {team_id: team_projections(team_id, opp_id, team_rosters[team_id][0]) for team_id, _, opp_id, _ in sides}
         if props_params else {}
     )
-    st.subheader(f"Las estrellas y quién las defendió en {LAST}")
+    section("shield", f"Las estrellas y quién las defendió en {LAST}")
     for col, (team_id, abbr, opp_id, opp_abbr) in zip(st.columns(2), sides):
         stars = projections[team_id]["PLAYER_ID"].head(2) if projections else available_ids(team_rosters[team_id][0])[:2]
         with col:
@@ -461,13 +564,13 @@ def game_brief(game_id, game, day):
         "«Hoy» dice si ese defensor juega este partido, está lesionado o se fue a otro equipo."
     )
 
-    st.subheader("Quién sube sin los lesionados")
+    section("trending_up", "Quién sube sin los lesionados")
     logs_before = current_logs[pd.to_datetime(current_logs["GAME_DATE"]).dt.date < day]
     for col, (team_id, abbr, _, _) in zip(st.columns(2), sides):
         roster = team_rosters[team_id][0]
         key_absent = roster[roster["STATUS"].isin(["fuera", "inactivo"]) & (roster["EXPECTED_MIN"] >= REGULAR_MIN)]
         with col:
-            st.markdown(f"**{abbr}**")
+            st.markdown(f"**{team_label(abbr)}**")
             if key_absent.empty:
                 st.caption("Sin bajas importantes.")
                 continue
@@ -482,19 +585,19 @@ def game_brief(game_id, game, day):
                 )
                 continue
             st.caption(f"{len(without)} partido{'s' if len(without) > 1 else ''} de esta temporada sin {who}:")
-            st.dataframe(table.head(5), hide_index=True, column_config={
+            st.dataframe(signed(table.head(5), ["Diferencia"]), hide_index=True, column_config={
                 c: st.column_config.NumberColumn(format="%.1f") for c in ["Pts sin", "Pts con", "Min sin", "Min con"]
             } | {"Diferencia": st.column_config.NumberColumn(format="%+.1f", help="Puntos sin ellos − puntos con ellos")})
 
-    st.subheader("Cansancio")
+    section("bedtime", "Cansancio")
     for col, (team_id, abbr, _, _) in zip(st.columns(2), sides):
         info = last_game(team_id, day, current_logs, abbr)
         if info is None:
-            col.caption(f"{abbr}: primer partido de la temporada.")
+            col.caption(f"{team_label(abbr)}: primer partido de la temporada.")
             continue
         when = "ayer (segunda noche seguida)" if info["dias"] == 1 else f"hace {info['dias']} días"
         col.markdown(
-            f"**{abbr}** jugó {when}: {info['resultado']} {info['partido']}."
+            f"**{team_label(abbr)}** jugó {when}: {info['resultado']} {info['partido']}."
             + (f" Con 30 minutos o más: {info['minutos']}." if info["minutos"] else "")
         )
     if tired:
@@ -503,7 +606,7 @@ def game_brief(game_id, game, day):
             "de victoria y el marcador proyectado ya lo toman en cuenta."
         )
 
-    st.subheader("Historial")
+    section("history", "Historial")
     history = pd.concat([
         meetings(game.AWAY_TEAM_ID, game.HOME_TEAM_ID, load_csv("game_logs", LAST), load_csv("games", LAST), LAST),
         meetings(game.AWAY_TEAM_ID, game.HOME_TEAM_ID, current_logs, played_before, CURRENT_SEASON),
@@ -514,9 +617,9 @@ def game_brief(game_id, game, day):
         st.dataframe(history, hide_index=True)
 
     if projections:
-        st.subheader("Puntos proyectados")
+        section("target", "Puntos proyectados")
         for col, (team_id, abbr, _, _) in zip(st.columns(2), sides):
-            col.markdown(f"**{abbr}**")
+            col.markdown(f"**{team_label(abbr)}**")
             col.dataframe(
                 projections[team_id][["Jugador", "EXP_MIN", "LAST10", "PROJ"]].head(6).rename(
                     columns={"EXP_MIN": "Min esp.", "LAST10": "Últ. 10", "PROJ": "Proy."}
@@ -533,6 +636,7 @@ def props_game(game_id, game, day):
     Las líneas se guardan con la proyección del momento mientras el partido no haya terminado.
     Devuelve los picks del partido.
     """
+    matchup_banner(game_id, game)
     saved = load_props()
     saved = saved[saved["GAME_ID"] == game_id].set_index("PLAYER_ID")
     done = game_id in finished.index
@@ -549,7 +653,7 @@ def props_game(game_id, game, day):
             "Proy.": proj["PROJ"], "Línea": proj["PLAYER_ID"].map(saved["LINE"]),
             "Over": saved_odds["ODDS_OVER"], "Under": saved_odds["ODDS_UNDER"],
         })
-        st.markdown(f"**{abbr}** contra {opp_abbr}")
+        st.markdown(f"**{team_label(abbr)}** contra {team_label(opp_abbr)}")
         edited = st.data_editor(
             table, key=f"props_{game_id}_{team_id}", hide_index=True, placeholder="—",
             disabled=["Jugador", "Min", "Últ. 10", "Proy."],
@@ -586,7 +690,7 @@ def props_game(game_id, game, day):
             over = prob >= 0.5
             p_side, side_odds = (prob, odds[0]) if over else (1 - prob, odds[1])
             picks.append({
-                "Jugador": row.Jugador, "Equipo": abbr, "Línea": line, "Proy.": row.PROJ,
+                "Jugador": row.Jugador, "Logo": team_logo(abbr), "Equipo": abbr, "Línea": line, "Proy.": row.PROJ,
                 "Pick": "Over" if over else "Under", "Prob.": p_side * 100, "Momio": american(side_odds),
                 "Momio justo": american(1 / p_side), "Ventaja": (p_side - 1 / side_odds) * 100,
             })
@@ -595,7 +699,7 @@ def props_game(game_id, game, day):
 
 def props_record():
     """Récord de las líneas guardadas en partidos ya jugados, al estilo «mis picks»."""
-    st.subheader("Tu récord")
+    section("emoji_events", "Tu récord")
     results = props_results(load_props(), current_logs)
     if results.empty:
         st.info(
@@ -611,19 +715,21 @@ def props_record():
         for side in ["Over", "Under"]:
             if len(picked := graded[graded["PICK"] == side]):
                 st.metric(side, f"{picked['HIT'].sum():.0f}/{len(picked)}", border=True)
-        st.metric("Ganancia por unidad", f"{results['PROFIT'].mean():+.1%}", border=True,
+        st.metric("Ganancia por unidad", colored(results["PROFIT"].mean(), f"{results['PROFIT'].mean():+.1%}"), border=True,
                   help="Lo que habría dejado en promedio apostar 1 unidad a cada pick con sus momios")
     results = results.sort_values(["GAME_DATE", "PLAYER_NAME"], ascending=[False, True])
     st.dataframe(
-        pd.DataFrame({
+        signed(pd.DataFrame({
             "Fecha": pd.to_datetime(results["GAME_DATE"]).dt.strftime("%d/%m/%y"),
-            "Jugador": results["PLAYER_NAME"], "Equipo": results["TEAM"], "Línea": results["LINE"], "Proy.": results["PROJ"],
+            "Jugador": results["PLAYER_NAME"], "Logo": results["TEAM"].map(team_logo), "Equipo": results["TEAM"],
+            "Línea": results["LINE"], "Proy.": results["PROJ"],
             "Pick": results["PICK"],
             "Prob.": np.where(results["PICK"] == "Over", results["P_OVER"], 1 - results["P_OVER"]) * 100,
             "Puntos": results["PTS"], "Acierto": results["HIT"].map({1.0: True, 0.0: False}), "1 unidad": results["PROFIT"],
-        }),
+        }), ["1 unidad"]),
         hide_index=True,
         column_config={
+            "Logo": LOGO_COLUMN,
             "Línea": st.column_config.NumberColumn(format="%.1f"), "Proy.": st.column_config.NumberColumn(format="%.1f"),
             "Prob.": st.column_config.NumberColumn(format="%.0f%%"), "Acierto": st.column_config.CheckboxColumn(),
             "1 unidad": st.column_config.NumberColumn(format="%+.2f"),
@@ -643,15 +749,7 @@ def slate_game(game_id, game, bank, fraction, saved_odds):
     Devuelve la apuesta elegida, o None si no hay, para el resumen del día.
     """
     day = pd.Timestamp(game.GAME_DATE).date()
-    header = f"**{game.AWAY_TEAM} @ {game.HOME_TEAM}**"
-    if game_id in finished.index:
-        result = finished.loc[game_id]
-        header += f" · Final: {result.AWAY_PTS:.0f}-{result.HOME_PTS:.0f}"
-    elif time := tip_time(game):
-        header += f" · {time}"
-    if tired := tired_teams(game_id, game):
-        header += f" · Jugó ayer: {', '.join(tired)}"
-    st.markdown(header)
+    matchup_banner(game_id, game)
     away_col, home_col = st.columns(2)
     away_ids, away_bench, _, _ = pick_lineup(
         away_col, "Visitante", game.AWAY_TEAM_ID, game.AWAY_TEAM, f"slate_{game_id}_{game.AWAY_TEAM_ID}", day, game_id
@@ -668,12 +766,12 @@ def slate_game(game_id, game, bank, fraction, saved_odds):
     # Fila aparte para que las tarjetas queden parejas aunque una alineación ocupe más renglones
     for col, (team, p) in zip(st.columns(2), probs.items()):
         col.metric(
-            f"Victoria {team}", f"{p:.0%}", f"Momio justo {american(1 / p):+.0f}",
-            delta_color="off", delta_arrow="off", border=True,
+            f"Victoria {team_label(team)}", win_value(p), f"Momio justo {american(1 / p):+.0f}",
+            delta_color="orange", delta_arrow="off", border=True,
         )
         saved = saved_odds.get((game_id, team))
         text = col.text_input(
-            f"Momio {team}", value=odds_text(saved[0]) if saved else "", key=f"slate_{game_id}_{team}_odds",
+            f"Momio {team_label(team)}", value=odds_text(saved[0]) if saved else "", key=f"slate_{game_id}_{team}_odds",
             placeholder="-110, +150 o 1.91",
         )
         if not text:
@@ -687,7 +785,7 @@ def slate_game(game_id, game, bank, fraction, saved_odds):
         if changed and game_id not in finished.index:
             save_odds(game_id, game.GAME_DATE, team, odds[team], p)
 
-    pick = st.segmented_control("Apostar a", list(probs), key=f"slate_{game_id}_pick")
+    pick = st.segmented_control("Apostar a", list(probs), format_func=team_label, key=f"slate_{game_id}_pick")
     if pick is None:
         return None
     if odds.get(pick) is None:
@@ -699,7 +797,8 @@ def slate_game(game_id, game, bank, fraction, saved_odds):
         st.warning(f"Sin ventaja: el modelo le da {p:.0%} a {pick} y el momio implica {1 / d:.0%}. Mejor no apostar.")
         return None
     bet = {
-        "Partido": f"{game.AWAY_TEAM} @ {game.HOME_TEAM}", "Equipo": pick, "Momio": american(d), "Prob. modelo": p * 100,
+        "Partido": f"{game.AWAY_TEAM} @ {game.HOME_TEAM}", "Logo": team_logo(pick), "Equipo": pick, "Momio": american(d),
+        "Prob. modelo": p * 100,
         "% del bank": share * 100,
     }
     if bank:
@@ -727,7 +826,7 @@ def refresh_data():
 
 
 title_col, update_col = st.columns([3, 1], vertical_alignment="bottom")
-title_col.title("Predicción NBA")
+title_col.title(":primary[:material/sports_basketball:] Predicción NBA")
 with update_col:
     if st.button(
         "Actualizar datos",
@@ -757,7 +856,10 @@ if "new_games" in st.session_state:
     )
 
 players_tab, prediction_tab, brief_tab, slate_tab, props_tab, tracking_tab = st.tabs(
-    ["Jugadores", "Predicción", "Ficha", "Jornada", "Props", "Seguimiento"]
+    [
+        ":material/person: Jugadores", ":material/query_stats: Predicción", ":material/description: Ficha",
+        ":material/calendar_month: Jornada", ":material/target: Props", ":material/monitoring: Seguimiento",
+    ]
 )
 
 with players_tab:
@@ -768,7 +870,7 @@ with players_tab:
 
     rows = {s: stats[s].reindex([player_id]).iloc[0] for s in (old, new)}
     st.caption(" · ".join(
-        f"{s}: {r.TEAM_ABBREVIATION}, {r.GP:.0f} partidos" if pd.notna(r.GP) else f"{s}: no jugó"
+        f"{s}: {team_label(r.TEAM_ABBREVIATION)}, {r.GP:.0f} partidos" if pd.notna(r.GP) else f"{s}: no jugó"
         for s, r in rows.items()
     ))
 
@@ -778,14 +880,14 @@ with players_tab:
     table.index = table.index.map(LABELS)
     if table[[old, new]].notna().any().any():
         table_col, chart_col = st.columns(2)
-        table_col.dataframe(table, column_config={
+        table_col.dataframe(signed(table, ["Diferencia"], skip=["Pérdidas"]), column_config={  # más pérdidas no es mejor
             old: st.column_config.NumberColumn(format="%.1f"),
             new: st.column_config.NumberColumn(format="%.1f"),
             "Diferencia": st.column_config.NumberColumn(format="%+.1f"),
         })
         chart_col.bar_chart(table[[old, new]], horizontal=True, sort=False, stack=False)
 
-    st.subheader("Forma reciente")
+    section("local_fire_department", "Forma reciente")
     per36 = st.toggle(
         "Por 36 minutos",
         help="Escala las stats a 36 minutos para comparar sin el efecto de jugar más o menos minutos",
@@ -807,7 +909,7 @@ with players_tab:
         form.loc[["FG_PCT", "FG3_PCT"]] *= 100
         form.index = form.index.map(LABELS)
         form_col, form_chart_col = st.columns(2)
-        form_col.dataframe(form, column_config={
+        form_col.dataframe(signed(form, ["Tendencia"], skip=["Pérdidas"]), column_config={
             **{c: st.column_config.NumberColumn(format="%.1f") for c in form.columns},
             "Tendencia": st.column_config.NumberColumn(format="%+.1f"),
         })
@@ -833,16 +935,17 @@ with players_tab:
         with st.expander("Partido a partido"):
             detail = games.assign(
                 Resultado=games["WL"].map({"W": "G", "L": "P"}),
+                Rival=games["MATCHUP"].str[-3:].map(team_logo),
                 FG=games["FGM"].astype(str) + "-" + games["FGA"].astype(str),
                 **{"3P": games["FG3M"].astype(str) + "-" + games["FG3A"].astype(str)},
             ).rename(columns={"MATCHUP": "Partido", **LABELS})
             st.dataframe(
-                detail.iloc[::-1][[
-                    "Fecha", "Partido", "Tipo", "Resultado", "Minutos", "Puntos", "Rebotes", "Asistencias",
+                signed(detail.iloc[::-1][[
+                    "Fecha", "Partido", "Rival", "Tipo", "Resultado", "Minutos", "Puntos", "Rebotes", "Asistencias",
                     "Robos", "Tapones", "Pérdidas", "FG", "3P", "+/-",
-                ]],
+                ]], ["+/-"]),
                 hide_index=True,
-                column_config={"Minutos": st.column_config.NumberColumn(format="%.0f")},
+                column_config={"Minutos": st.column_config.NumberColumn(format="%.0f"), "Rival": LOGO_COLUMN},
             )
 
 # Van antes que Predicción en el código porque esa pestaña puede cortar la ejecución con st.stop()
@@ -867,9 +970,11 @@ with tracking_tab:
         score = lambda away, home: away.round().astype(int).astype(str) + "-" + home.round().astype(int).astype(str)
         favorite, margin, real = projected_margin(track, "TEAM")
         st.dataframe(
-            pd.DataFrame({
+            signed(pd.DataFrame({
                 "Fecha": pd.to_datetime(track["GAME_DATE"]).dt.strftime("%d/%m/%y"),
+                "Logo visitante": track["AWAY_TEAM"].map(team_logo),
                 "Partido": track["AWAY_TEAM"] + " @ " + track["HOME_TEAM"],
+                "Logo local": track["HOME_TEAM"].map(team_logo),
                 "Prob. local": track["P_HOME"] * 100,
                 "Pronóstico": np.where(track["P_HOME"] >= 0.5, track["HOME_TEAM"], track["AWAY_TEAM"]),
                 "Ganó": np.where(track["HOME_WIN"] == 1, track["HOME_TEAM"], track["AWAY_TEAM"]),
@@ -882,9 +987,11 @@ with tracking_tab:
                 "Cumplió": real >= margin,
                 "Total": track["AWAY_PTS"] + track["HOME_PTS"],
                 "Total proy.": track["TEAM_AWAY"] + track["TEAM_HOME"],
-            }),
+            }), ["Dif. real"]),
             hide_index=True,
             column_config={
+                "Logo visitante": LOGO_COLUMN,
+                "Logo local": LOGO_COLUMN,
                 "Prob. local": st.column_config.NumberColumn(format="%.0f%%"),
                 "Acierto": st.column_config.CheckboxColumn(),
                 "Dif. proy.": st.column_config.TextColumn(
@@ -909,7 +1016,7 @@ with tracking_tab:
             "diferencia proyectada no se queda corta ni se pasa. Con pocos partidos este porcentaje varía mucho."
         )
 
-    st.subheader("Modelo contra el mercado")
+    section("balance", "Modelo contra el mercado")
     results = odds_results(load_odds(), finished.reset_index())
     if results.empty:
         st.info(
@@ -930,14 +1037,15 @@ with tracking_tab:
             st.metric("Apuestas con ventaja", m["Apuestas con ventaja"], border=True)
             if m["Apuestas con ventaja"]:
                 st.metric(
-                    "Ganancia por unidad", f"{m['Ganancia por unidad']:+.1%}", border=True,
+                    "Ganancia por unidad", colored(m["Ganancia por unidad"], f"{m['Ganancia por unidad']:+.1%}"), border=True,
                     help="Lo que habría dejado apostar 1 unidad en cada momio donde el modelo veía ventaja",
                 )
         results = results.sort_values(["GAME_DATE", "GAME_ID"], ascending=False)
         st.dataframe(
-            pd.DataFrame({
+            signed(pd.DataFrame({
                 "Fecha": pd.to_datetime(results["GAME_DATE"]).dt.strftime("%d/%m/%y"),
                 "Partido": results["AWAY_TEAM"] + " @ " + results["HOME_TEAM"],
+                "Logo": results["TEAM"].map(team_logo),
                 "Equipo": results["TEAM"],
                 "Momio": results["ODDS"].map(american),
                 "Prob. mercado": results["MARKET_P"] * 100,
@@ -945,9 +1053,10 @@ with tracking_tab:
                 "Ventaja": results["EDGE"] * 100,
                 "Ganó": results["WON"],
                 "1 unidad": results["PROFIT"],
-            }),
+            }), ["Ventaja", "1 unidad"]),
             hide_index=True,
             column_config={
+                "Logo": LOGO_COLUMN,
                 "Momio": st.column_config.NumberColumn(format="%+.0f"),
                 "Prob. mercado": st.column_config.NumberColumn(
                     format="%.0f%%", help="Sin el margen de la casa cuando están los momios de los dos equipos"
@@ -1016,12 +1125,14 @@ with slate_tab:
                         st.metric("Total a apostar", f"${bets['Apuesta'].sum():,.2f}", border=True)
                         expected = bets["Valor esperado"].sum()
                         st.metric(
-                            "Ganancia esperada", f"{'+' if expected >= 0 else '-'}${abs(expected):,.2f}", border=True,
+                            "Ganancia esperada", colored(expected, f"{'+' if expected >= 0 else '-'}${abs(expected):,.2f}"),
+                            border=True,
                             help="Lo que ganarías en promedio si las probabilidades del modelo fueran exactas",
                         )
                     else:
                         st.metric("Total a apostar", f"{bets['% del bank'].sum():.1f}% del bank", border=True)
-                st.dataframe(bets, hide_index=True, column_config={
+                st.dataframe(signed(bets, ["Valor esperado"]), hide_index=True, column_config={
+                    "Logo": LOGO_COLUMN,
                     "Momio": st.column_config.NumberColumn(format="%+.0f"),
                     "Prob. modelo": st.column_config.NumberColumn(format="%.0f%%"),
                     "% del bank": st.column_config.NumberColumn(format="%.1f%%"),
@@ -1059,8 +1170,9 @@ with props_tab:
                 "Escribe la línea de puntos de la casa (y sus momios, si no son −110) para ver el pick de cada jugador."
             )
         else:
-            st.subheader("Picks del partido")
-            st.dataframe(picks, hide_index=True, column_config={
+            section("task_alt", "Picks del partido")
+            st.dataframe(signed(picks, ["Ventaja"]), hide_index=True, column_config={
+                "Logo": LOGO_COLUMN,
                 "Línea": st.column_config.NumberColumn(format="%.1f"),
                 "Proy.": st.column_config.NumberColumn(format="%.1f"),
                 "Prob.": st.column_config.NumberColumn(format="%.0f%%", help="Probabilidad del pick según la proyección"),
@@ -1082,22 +1194,10 @@ with props_tab:
     props_record()
 
 with prediction_tab:
-    date_col, game_col = st.columns([1, 2])
-    day = date_col.date_input(
-        "Fecha",
-        value=first_day,
-        min_value=dates.min(),
-        max_value=dates.max(),
-        format="DD/MM/YYYY",
-    )
-    day_games = schedule[dates == day].set_index("GAME_ID")
-    if day_games.empty:
-        st.info("No hay partidos ese día.")
+    if (choice := pick_game("prediction")) is None:
         st.stop()
-
-    matchups = {gid: game_label(g) for gid, g in day_games.iterrows()}
-    game_id = game_col.selectbox("Partido", matchups, format_func=matchups.get)
-    game = day_games.loc[game_id]
+    day, game_id, game = choice
+    matchup_banner(game_id, game)
 
     away_col, home_col = st.columns(2)
     away_ids, away_bench, away_available, away_labels = pick_lineup(
@@ -1113,55 +1213,6 @@ with prediction_tab:
         p_home, features, home_f, away_f = game_prediction(
             game_id, game, (home_ids, home_bench), (away_ids, away_bench)
         )
-        away_metric, home_metric = st.columns(2)  # fila aparte para que queden parejas
-        away_metric.metric(f"Victoria {game.AWAY_TEAM}", f"{1 - p_home:.0%}", border=True)
-        home_metric.metric(f"Victoria {game.HOME_TEAM}", f"{p_home:.0%}", border=True)
-        tired = tired_teams(game_id, game)
-        st.caption(
-            f"Elo: {game.AWAY_TEAM} {team_elo(game.AWAY_TEAM_ID):.0f} · {game.HOME_TEAM} {team_elo(game.HOME_TEAM_ID):.0f}. "
-            + (f"Jugó ayer: {', '.join(tired)}." if tired else "Ninguno de los dos jugó ayer.")
-        )
-
-        st.subheader("Cara a cara")
-        season_view = f"Temporada {new}"
-        with st.container(horizontal=True, vertical_alignment="center"):
-            view = st.segmented_control(
-                "Ver", [season_view, *FORM_VIEWS], default="Últimos 5", required=True, key="face_view",
-                label_visibility="collapsed",
-            )
-            face_per36 = st.toggle("Por 36 minutos", key="face_per36")
-        face_config = {
-            "_index": st.column_config.TextColumn(width=190),
-            "PJ": st.column_config.NumberColumn(format="%.0f", width=40, help="Partidos en los que se basa cada fila"),
-            **{
-                short: st.column_config.NumberColumn(format="%.1f", width=52, help=LABELS[c])
-                for c, short in FACE_COLS.items()
-            },
-            "Tend.": st.column_config.NumberColumn(
-                format="%+.1f",
-                width=52,
-                help=f"Tendencia: puntos en esta vista − promedio de la temporada ({new}, o {old} si no la jugó)",
-            ),
-        }
-        face_away, face_home = st.columns(2)
-        for container, side, team, ids, available, labels in [
-            (face_away, "Visitante", game.AWAY_TEAM, away_ids, away_available, away_labels),
-            (face_home, "Local", game.HOME_TEAM, home_ids, home_available, home_labels),
-        ]:
-            table = face_to_face(ids, available, labels, view, face_per36)
-            container.markdown(f"**{side}: {team}**")
-            # Alto suficiente para ver a toda la plantilla sin scroll (35 px por fila más el encabezado)
-            container.dataframe(table, column_config=face_config, height=35 * (len(table) + 1) + 3, placeholder="—")
-        st.caption(
-            "Arriba los 5 elegidos y su promedio; abajo el resto de la plantilla disponible (sin los que están fuera por "
-            "lesión), de más a menos minutos esperados, y el promedio de la banca ponderado por minutos jugados. "
-            f"«Temporada» es el promedio de {new} (o de {old} si el jugador no jugó esa). «Últimos 5» y «Últimos 10» "
-            "incluyen pretemporada, temporada regular y playoffs; en pretemporada los titulares juegan menos minutos, "
-            "así que conviene mirarlos por 36 minutos. PJ = partidos de la vista. "
-            "Tend. = puntos en la vista − promedio de la temporada."
-        )
-
-        st.subheader("Marcador proyectado")
         league, b2b = team_r.mean(), b2b_table.loc[game_id]
         by_team = project(
             team_r.loc[game.HOME_TEAM_ID], team_r.loc[game.AWAY_TEAM_ID], league, home_edge_pts, b2b["HOME"], b2b["AWAY"]
@@ -1170,14 +1221,82 @@ with prediction_tab:
             lineup_ratings(home_ids, player_r, bench_r), lineup_ratings(away_ids, player_r, bench_r), league,
             home_edge_pts, b2b["HOME"], b2b["AWAY"],
         )
+        # Fila aparte para que queden parejas
+        for col, team, p, pts in zip(
+            st.columns(2), [game.AWAY_TEAM, game.HOME_TEAM], [1 - p_home, p_home], by_team[::-1]
+        ):
+            col.metric(
+                f"Victoria {team_label(team)}", win_value(p), f"Momio justo {american(1 / p):+.0f} · {pts:.1f} puntos proyectados",
+                delta_color="orange", delta_arrow="off", border=True,
+            )
+        tired = tired_teams(game_id, game)
+        st.caption(
+            "Momio justo = el que pagaría exactamente el porcentaje del modelo. Puntos del marcador proyectado por equipo, "
+            "que no cambian con la alineación ni con las bajas. "
+            f"Elo: {game.AWAY_TEAM} {team_elo(game.AWAY_TEAM_ID):.0f} · {game.HOME_TEAM} {team_elo(game.HOME_TEAM_ID):.0f}. "
+            + (f"Jugó ayer: {', '.join(tired)}." if tired else "Ninguno de los dos jugó ayer.")
+        )
+        if (p_home >= 0.5) != (by_team[0] >= by_team[1]):
+            st.info(
+                "El porcentaje y el marcador no coinciden en el favorito. Pasa en el 14 % de los partidos y en esos ganó "
+                "el favorito del porcentaje el 56 % de las veces, así que para elegir ganador pesa más el porcentaje."
+            )
+
+        section("compare_arrows", "Cara a cara")
+        season_view = f"Temporada {new}"
+        with st.container(horizontal=True, vertical_alignment="center"):
+            view = st.segmented_control(
+                "Ver", [season_view, *FORM_VIEWS], default="Últimos 5", required=True, key="face_view",
+                label_visibility="collapsed",
+            )
+            face_per36 = st.toggle("Por 36 minutos", key="face_per36")
+        face_config = {
+            "_index": st.column_config.TextColumn(width=160),
+            "PJ": st.column_config.NumberColumn(format="%.0f", width=36, help="Partidos en los que se basa cada fila"),
+            **{
+                short: st.column_config.NumberColumn(format="%.1f", width=47, help=LABELS[c])
+                for c, short in FACE_COLS.items()
+            },
+            "Tend.": st.column_config.NumberColumn(
+                format="%+.1f",
+                width=47,
+                help=f"Tendencia: puntos en esta vista − promedio de la temporada ({new}, o {old} si no la jugó)",
+            ),
+            "Proy.": st.column_config.NumberColumn(
+                format="%.1f", width=47, help="Puntos proyectados para este partido, como en la pestaña Props"
+            ),
+        }
+        face_away, face_home = st.columns(2)
+        for container, side, team, team_id, opp_id, ids, available, labels in [
+            (face_away, "Visitante", game.AWAY_TEAM, game.AWAY_TEAM_ID, game.HOME_TEAM_ID, away_ids, away_available, away_labels),
+            (face_home, "Local", game.HOME_TEAM, game.HOME_TEAM_ID, game.AWAY_TEAM_ID, home_ids, home_available, home_labels),
+        ]:
+            proj = (
+                team_projections(team_id, opp_id, team_roster(team_id, day, game_id)[0]).set_index("PLAYER_ID")["PROJ"]
+                if props_params else {}
+            )
+            table = face_to_face(ids, available, labels, view, face_per36, proj)
+            container.markdown(f"**{side}: {team_label(team)}**")
+            # Alto suficiente para ver a toda la plantilla sin scroll (35 px por fila más el encabezado)
+            container.dataframe(face_style(table), column_config=face_config, height=35 * (len(table) + 1) + 3, placeholder="—")
+        st.caption(
+            "Arriba los 5 elegidos y su promedio; abajo el resto de la plantilla disponible (sin los que están fuera por "
+            "lesión), de más a menos minutos esperados, y el promedio de la banca ponderado por minutos jugados. "
+            f"«Temporada» es el promedio de {new} (o de {old} si el jugador no jugó esa). «Últimos 5» y «Últimos 10» "
+            "incluyen pretemporada, temporada regular y playoffs; en pretemporada los titulares juegan menos minutos, "
+            "así que conviene mirarlos por 36 minutos. PJ = partidos de la vista. "
+            "Tend. = puntos en la vista − promedio de la temporada. Proy. = puntos proyectados para este partido, con "
+            "los minutos esperados y repartiendo los puntos de los lesionados; no cambia con la vista ni con los 5 elegidos. "
+            "Se calcula jugador por jugador, así que la columna no suma el marcador del equipo."
+        )
+
+        section("scoreboard", "Marcador proyectado")
         score = pd.DataFrame(
             [[away, home, away + home] for home, away in (by_team, by_lineup)],
             index=["Por equipo", "Por alineación"],
-            columns=[game.AWAY_TEAM, game.HOME_TEAM, "Total"],
+            columns=[team_label(game.AWAY_TEAM), team_label(game.HOME_TEAM), "Total"],
         )
-        st.dataframe(
-            score, width="content", column_config={c: st.column_config.NumberColumn(format="%.1f") for c in score.columns}
-        )
+        st.table(score.map("{:.1f}".format), width="content")  # a diferencia de st.dataframe, sus encabezados aceptan logos
         st.caption(
             "Cada equipo parte del promedio de la liga y suma lo que su ataque está por encima del promedio y lo que la "
             f"defensa rival está por debajo (las posesiones, igual con el ritmo), contando el {DEVIATION_WEIGHT:.0%} de esas "
@@ -1188,7 +1307,7 @@ with prediction_tab:
             "diferencia proyectada se cumplió la mitad de las veces: no se queda corta ni se pasa."
         )
 
-        st.subheader("¿Por qué este porcentaje?")
+        section("help", "¿Por qué este porcentaje?")
         contrib = contributions(model, features)
         fmt = lambda c, v: f"{v * 100:.1f}" if c.endswith("_PCT") else f"{v:.1f}"
         rows = {FEATURE_LABELS[c]: (fmt(c, away_f[c]), fmt(c, home_f[c]), contrib[c]) for c in STAT_COLS + BENCH_COLS}
@@ -1201,11 +1320,10 @@ with prediction_tab:
         detail = detail.sort_values("Aporte", key=abs, ascending=False)
 
         table_col, chart_col = st.columns(2)
-        table_col.dataframe(detail, column_config={
-            game.AWAY_TEAM: st.column_config.TextColumn(alignment="right"),
-            game.HOME_TEAM: st.column_config.TextColumn(alignment="right"),
-            "Aporte": st.column_config.NumberColumn(format="%+.2f"),
-        })
+        # Azul si favorece al local y naranja si favorece al visitante, como las barras de la gráfica
+        table_col.table(detail.rename(columns={game.AWAY_TEAM: team_label(game.AWAY_TEAM), game.HOME_TEAM: team_label(game.HOME_TEAM)}).assign(
+            Aporte=detail["Aporte"].map(lambda v: f":{'blue' if v >= 0 else 'orange'}[{v:+.2f}]")
+        ))
         chart_col.bar_chart(
             pd.DataFrame({
                 f"Local: {game.HOME_TEAM}": detail["Aporte"].clip(lower=0),

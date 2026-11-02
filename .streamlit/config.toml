@@ -1,0 +1,43 @@
+# Colores de la app: madera de cancha y naranja de balón en modo claro, azul de arena en modo oscuro.
+# Streamlit usa el modo del navegador; se puede cambiar en el menú ⋮ > Settings.
+[theme]
+baseRadius = "medium"
+# Streamlit solo acepta una lista para los dos modos: deben verse sobre fondo claro y oscuro
+chartCategoricalColors = ["#2F6FDE", "#E8590C", "#16A34A", "#DC2626", "#7C3AED", "#CA8A04", "#64748B"]
+
+[theme.light]
+primaryColor = "#C2410C"
+backgroundColor = "#FFFBF5"
+secondaryBackgroundColor = "#F8EAD8"
+textColor = "#14213D"
+linkColor = "#17408B"
+borderColor = "#E8D6BF"
+dataframeBorderColor = "#E8D6BF"
+dataframeHeaderBackgroundColor = "#F3DFC6"
+redColor = "#C8102E"
+orangeColor = "#C2410C"
+yellowColor = "#A16207"
+greenColor = "#15803D"
+blueColor = "#17408B"
+violetColor = "#6D28D9"
+grayColor = "#5B6478"
+# Streamlit oscurece el texto de color; así el verde y el azul se siguen viendo como tales
+greenTextColor = "#15803D"
+blueTextColor = "#1D5FD1"
+
+[theme.dark]
+primaryColor = "#E8590C"
+backgroundColor = "#0B1324"
+secondaryBackgroundColor = "#16213A"
+textColor = "#F1F5F9"
+linkColor = "#7FB2FF"
+borderColor = "#2B3A5C"
+dataframeBorderColor = "#2B3A5C"
+dataframeHeaderBackgroundColor = "#1C2A48"
+redColor = "#FF6B6B"
+orangeColor = "#FB923C"
+yellowColor = "#FCD34D"
+greenColor = "#4ADE80"
+blueColor = "#7FB2FF"
+violetColor = "#C4B5FD"
+grayColor = "#94A3B8"
