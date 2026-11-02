@@ -1,4 +1,4 @@
-"""Logo y color de cada equipo de la NBA para la app."""
+"""Logo y color de cada equipo de la NBA y foto de cada jugador para la app."""
 
 # Abreviatura: (id de la NBA, color del equipo lo bastante oscuro para leer texto blanco encima)
 TEAMS = {
@@ -21,3 +21,8 @@ def logo_url(abbr, dark=False):
     La NBA tiene una versión para fondo oscuro: el logo de Brooklyn, por ejemplo, es negro en la normal.
     """
     return f"https://cdn.nba.com/logos/nba/{TEAMS[abbr][0]}/primary/{'D' if dark else 'L'}/logo.svg"
+
+
+def headshot_url(player_id):
+    """Foto oficial del jugador en el CDN de la NBA; a quien no tiene foto le da una silueta."""
+    return f"https://cdn.nba.com/headshots/nba/latest/260x190/{player_id}.png"

@@ -16,7 +16,7 @@ from model import (
 from brief import absence_split, last_game, meetings, record, star_defenders
 from points import B2B_PTS, B2B_RIVAL_PTS, DEVIATION_WEIGHT, current_ratings, lineup_ratings, project
 from props import REGULAR_MIN, load_params, load_props, p_over, player_projections, props_results, save_prop
-from teams import TEAMS, logo_url
+from teams import TEAMS, headshot_url, logo_url
 from tracking import projected_margin, season_tracking, summary
 
 LABELS = {
@@ -35,6 +35,8 @@ FACE_COLS = {"MIN": "Min", "PTS": "Pts", "REB": "Reb", "AST": "Ast", "STL": "Rob
 FORM_VIEWS = {"Últimos 5": 5, "Últimos 10": 10}
 AVERAGE_ROWS = ["Promedio alineación", "Promedio banca"]
 LOGO_COLUMN = st.column_config.ImageColumn(" ", width=36)
+PHOTO_COLUMN = st.column_config.ImageColumn(" ", width=60)
+PHOTO_ROW_HEIGHT = 44  # las filas normales miden 35 px: las caras se verían muy chicas
 
 st.set_page_config(page_title="Predicción NBA", page_icon=":material/sports_basketball:", layout="wide")
 # En Markdown los logos saldrían de su tamaño original; así miden lo que la letra en cualquier texto
@@ -230,6 +232,21 @@ def team_label(abbr):
     if abbr not in TEAMS:
         return "Por definir" if pd.isna(abbr) else str(abbr)
     return f"![]({team_logo(abbr)}) {abbr}"
+
+
+def player_header(player_id, name, abbr, size="3.5rem"):
+    """Cara del jugador en un círculo del color de su equipo, con su nombre y el logo del equipo."""
+    color, team = (TEAMS[abbr][1], f'<img src="{team_logo(abbr)}" alt=""> {abbr}') if abbr in TEAMS else ("#475569", "")
+    st.html(
+        '<div style="display:flex;align-items:center;gap:.7rem">'
+        f'<img src="{headshot_url(player_id)}" alt="" style="height:{size};width:{size};object-fit:cover;object-position:top;'
+        f'border-radius:50%;background:{color}"><div><b style="font-size:1.1rem">{name}</b><br>{team}</div></div>'
+    )
+
+
+def with_photos(table):
+    """Tabla con la foto de cada jugador en el lugar de su PLAYER_ID."""
+    return table.assign(PLAYER_ID=table["PLAYER_ID"].map(headshot_url)).rename(columns={"PLAYER_ID": "Foto"})
 
 
 def section(icon, title):
@@ -494,9 +511,10 @@ def where_now(player_id, opp_roster):
 
 def defenders_block(star_id, team_abbr, opp_id, opp_abbr, opp_roster):
     """Quién defendió a una estrella en el rival la temporada pasada (y esta), y cuántos de ellos ya no están."""
-    st.markdown(f"**{player_names.get(star_id, star_id)} ({team_label(team_abbr)})**")
+    player_header(star_id, player_names.get(star_id, star_id), team_abbr)
     status = lambda pid: where_now(pid, opp_roster)  # noqa: E731
     config = {
+        "Foto": PHOTO_COLUMN,
         "Posesiones": st.column_config.NumberColumn(format="%.0f"),
         "Puntos": st.column_config.NumberColumn(format="%.0f", help="Puntos que anotó contra ese defensor"),
         "Tiros": st.column_config.TextColumn(help="Tiros de campo anotados-intentados contra ese defensor"),
@@ -506,7 +524,9 @@ def defenders_block(star_id, team_abbr, opp_id, opp_abbr, opp_roster):
         st.caption(f"No enfrentó a {opp_abbr} en {LAST}.")
     else:
         gone = ~table["Hoy"].str.startswith(("Disponible", "Duda"))
-        st.dataframe(defenders_style(table.head(8)), hide_index=True, column_config=config)
+        st.dataframe(
+            defenders_style(with_photos(table.head(8))), hide_index=True, column_config=config, row_height=PHOTO_ROW_HEIGHT
+        )
         total, gone_poss = table["Posesiones"].sum(), table.loc[gone, "Posesiones"].sum()
         st.caption(
             f"{LAST}: {total:.0f} posesiones y {table['Puntos'].sum():.0f} puntos contra {opp_abbr}. Los que hoy no están "
@@ -516,7 +536,9 @@ def defenders_block(star_id, team_abbr, opp_id, opp_abbr, opp_roster):
     current = star_defenders(star_id, opp_id, load_csv("matchups", CURRENT_SEASON), player_names, status)
     if not current.empty:
         st.caption(f"Esta temporada contra {opp_abbr}:")
-        st.dataframe(defenders_style(current.head(5)), hide_index=True, column_config=config)
+        st.dataframe(
+            defenders_style(with_photos(current.head(5))), hide_index=True, column_config=config, row_height=PHOTO_ROW_HEIGHT
+        )
 
 
 def game_brief(game_id, game, day):
@@ -585,9 +607,12 @@ def game_brief(game_id, game, day):
                 )
                 continue
             st.caption(f"{len(without)} partido{'s' if len(without) > 1 else ''} de esta temporada sin {who}:")
-            st.dataframe(signed(table.head(5), ["Diferencia"]), hide_index=True, column_config={
+            st.dataframe(signed(with_photos(table.head(5)), ["Diferencia"]), hide_index=True, row_height=PHOTO_ROW_HEIGHT, column_config={
                 c: st.column_config.NumberColumn(format="%.1f") for c in ["Pts sin", "Pts con", "Min sin", "Min con"]
-            } | {"Diferencia": st.column_config.NumberColumn(format="%+.1f", help="Puntos sin ellos − puntos con ellos")})
+            } | {
+                "Foto": PHOTO_COLUMN,
+                "Diferencia": st.column_config.NumberColumn(format="%+.1f", help="Puntos sin ellos − puntos con ellos"),
+            })
 
     section("bedtime", "Cansancio")
     for col, (team_id, abbr, _, _) in zip(st.columns(2), sides):
@@ -621,11 +646,15 @@ def game_brief(game_id, game, day):
         for col, (team_id, abbr, _, _) in zip(st.columns(2), sides):
             col.markdown(f"**{team_label(abbr)}**")
             col.dataframe(
-                projections[team_id][["Jugador", "EXP_MIN", "LAST10", "PROJ"]].head(6).rename(
+                with_photos(projections[team_id][["PLAYER_ID", "Jugador", "EXP_MIN", "LAST10", "PROJ"]].head(6)).rename(
                     columns={"EXP_MIN": "Min esp.", "LAST10": "Últ. 10", "PROJ": "Proy."}
                 ),
                 hide_index=True,
-                column_config={c: st.column_config.NumberColumn(format="%.1f") for c in ["Min esp.", "Últ. 10", "Proy."]},
+                row_height=PHOTO_ROW_HEIGHT,
+                column_config={
+                    "Foto": PHOTO_COLUMN,
+                    **{c: st.column_config.NumberColumn(format="%.1f") for c in ["Min esp.", "Últ. 10", "Proy."]},
+                },
             )
         st.caption("Cómo se calculan y cómo compararlas con las líneas de las casas, en la pestaña Props.")
 
@@ -649,16 +678,18 @@ def props_game(game_id, game, day):
             col: proj["PLAYER_ID"].map(saved[col]).map(american).round().fillna(-110) for col in ["ODDS_OVER", "ODDS_UNDER"]
         }
         table = pd.DataFrame({
-            "PLAYER_ID": proj["PLAYER_ID"], "Jugador": proj["Jugador"], "Min": proj["EXP_MIN"], "Últ. 10": proj["LAST10"],
+            "PLAYER_ID": proj["PLAYER_ID"], "Foto": proj["PLAYER_ID"].map(headshot_url), "Jugador": proj["Jugador"],
+            "Min": proj["EXP_MIN"], "Últ. 10": proj["LAST10"],
             "Proy.": proj["PROJ"], "Línea": proj["PLAYER_ID"].map(saved["LINE"]),
             "Over": saved_odds["ODDS_OVER"], "Under": saved_odds["ODDS_UNDER"],
         })
         st.markdown(f"**{team_label(abbr)}** contra {team_label(opp_abbr)}")
         edited = st.data_editor(
-            table, key=f"props_{game_id}_{team_id}", hide_index=True, placeholder="—",
-            disabled=["Jugador", "Min", "Últ. 10", "Proy."],
-            column_order=["Jugador", "Min", "Últ. 10", "Proy.", "Línea", "Over", "Under"],
+            table, key=f"props_{game_id}_{team_id}", hide_index=True, placeholder="—", row_height=PHOTO_ROW_HEIGHT,
+            disabled=["Foto", "Jugador", "Min", "Últ. 10", "Proy."],
+            column_order=["Foto", "Jugador", "Min", "Últ. 10", "Proy.", "Línea", "Over", "Under"],
             column_config={
+                "Foto": PHOTO_COLUMN,
                 "Min": st.column_config.NumberColumn(format="%.0f", help="Minutos esperados"),
                 "Últ. 10": st.column_config.NumberColumn(format="%.1f", help="Puntos en sus últimos 10 partidos"),
                 "Proy.": st.column_config.NumberColumn(format="%.1f", help="Puntos proyectados"),
@@ -690,7 +721,8 @@ def props_game(game_id, game, day):
             over = prob >= 0.5
             p_side, side_odds = (prob, odds[0]) if over else (1 - prob, odds[1])
             picks.append({
-                "Jugador": row.Jugador, "Logo": team_logo(abbr), "Equipo": abbr, "Línea": line, "Proy.": row.PROJ,
+                "Foto": headshot_url(row.PLAYER_ID), "Jugador": row.Jugador, "Logo": team_logo(abbr), "Equipo": abbr,
+                "Línea": line, "Proy.": row.PROJ,
                 "Pick": "Over" if over else "Under", "Prob.": p_side * 100, "Momio": american(side_odds),
                 "Momio justo": american(1 / p_side), "Ventaja": (p_side - 1 / side_odds) * 100,
             })
@@ -721,6 +753,7 @@ def props_record():
     st.dataframe(
         signed(pd.DataFrame({
             "Fecha": pd.to_datetime(results["GAME_DATE"]).dt.strftime("%d/%m/%y"),
+            "Foto": results["PLAYER_ID"].map(headshot_url),
             "Jugador": results["PLAYER_NAME"], "Logo": results["TEAM"].map(team_logo), "Equipo": results["TEAM"],
             "Línea": results["LINE"], "Proy.": results["PROJ"],
             "Pick": results["PICK"],
@@ -728,7 +761,9 @@ def props_record():
             "Puntos": results["PTS"], "Acierto": results["HIT"].map({1.0: True, 0.0: False}), "1 unidad": results["PROFIT"],
         }), ["1 unidad"]),
         hide_index=True,
+        row_height=PHOTO_ROW_HEIGHT,
         column_config={
+            "Foto": PHOTO_COLUMN,
             "Logo": LOGO_COLUMN,
             "Línea": st.column_config.NumberColumn(format="%.1f"), "Proy.": st.column_config.NumberColumn(format="%.1f"),
             "Prob.": st.column_config.NumberColumn(format="%.0f%%"), "Acierto": st.column_config.CheckboxColumn(),
@@ -868,6 +903,8 @@ with players_tab:
     top_scorer = stats[new]["PTS"].idxmax()
     player_id = st.selectbox("Jugador", names.index, index=names.index.get_loc(top_scorer), format_func=names.get)
 
+    current_team = rosters.loc[rosters["PLAYER_ID"] == player_id, "TEAM_ABBREVIATION"]
+    player_header(player_id, names[player_id], current_team.iloc[0] if len(current_team) else None, size="6rem")
     rows = {s: stats[s].reindex([player_id]).iloc[0] for s in (old, new)}
     st.caption(" · ".join(
         f"{s}: {team_label(r.TEAM_ABBREVIATION)}, {r.GP:.0f} partidos" if pd.notna(r.GP) else f"{s}: no jugó"
@@ -1171,7 +1208,8 @@ with props_tab:
             )
         else:
             section("task_alt", "Picks del partido")
-            st.dataframe(signed(picks, ["Ventaja"]), hide_index=True, column_config={
+            st.dataframe(signed(picks, ["Ventaja"]), hide_index=True, row_height=PHOTO_ROW_HEIGHT, column_config={
+                "Foto": PHOTO_COLUMN,
                 "Logo": LOGO_COLUMN,
                 "Línea": st.column_config.NumberColumn(format="%.1f"),
                 "Proy.": st.column_config.NumberColumn(format="%.1f"),

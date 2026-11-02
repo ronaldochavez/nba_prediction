@@ -35,8 +35,9 @@ contra los momios de la casa.
 - **Seguimiento**: compara cada predicción con el resultado real de los partidos ya jugados de 2026-27, y el modelo contra el mercado
   en los partidos donde guardaste momios.
 - **Actualizar datos**: el botón de arriba descarga lo de la temporada actual sin cerrar la app.
-- **Logos y colores**: cada equipo aparece con su logo y cada partido con una franja de los colores de sus dos equipos. El tema tiene
-  modo claro y oscuro (`.streamlit/config.toml`) y sigue al navegador. Los logos los carga el navegador desde el CDN de la NBA, así que
+- **Logos, caras y colores**: cada equipo aparece con su logo, cada partido con una franja de los colores de sus dos equipos y los
+  jugadores de Jugadores, Ficha y Props con su foto. El tema tiene
+  modo claro y oscuro (`.streamlit/config.toml`) y sigue al navegador. Logos y fotos los carga el navegador desde el CDN de la NBA, así que
   no hay que descargarlos y también funcionan en Streamlit Cloud. Lo positivo sale en verde y lo negativo en rojo.
 
 ![Pestaña Jugadores](docs/jugadores.png)
@@ -314,7 +315,7 @@ La computadora tiene que quedarse prendida, con la sesión de Windows abierta y 
 ├── points.py           # Proyección de puntos y su evaluación
 ├── tracking.py         # Predicciones contra resultados de la temporada actual
 ├── brief.py            # Ficha de cada partido: defensores, bajas, cansancio e historial
-├── teams.py            # Logo y color de cada equipo
+├── teams.py            # Logo y color de cada equipo y foto de cada jugador
 ├── props.py            # Puntos proyectados por jugador para props y su evaluación → props_model.json
 ├── betting.py          # Momios, tamaño de apuesta (criterio de Kelly) y registro de momios
 ├── app.py              # App de Streamlit

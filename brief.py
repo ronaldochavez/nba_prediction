@@ -16,6 +16,7 @@ def star_defenders(star_id, opp_team_id, matchups, names, status):
     rows = matchups[(matchups["OFF_PLAYER_ID"] == star_id) & (matchups["DEF_TEAM_ID"] == opp_team_id)]
     rows = rows.sort_values("PARTIAL_POSS", ascending=False)
     return pd.DataFrame({
+        "PLAYER_ID": rows["DEF_PLAYER_ID"],
         "Defensor": rows["DEF_PLAYER_ID"].map(names).fillna(rows["DEF_PLAYER_ID"].astype(str)),
         "PJ": rows["GP"],
         "Posesiones": rows["PARTIAL_POSS"],
@@ -48,7 +49,7 @@ def absence_split(team_id, absent_ids, logs):
         "Min con": split[("MIN", False)],
     })
     table["Diferencia"] = table["Pts sin"] - table["Pts con"]
-    return without, table.sort_values("Diferencia", ascending=False).reset_index(drop=True)
+    return without, table.sort_values("Diferencia", ascending=False).reset_index()
 
 
 def last_game(team_id, day, logs, team_abbr):
