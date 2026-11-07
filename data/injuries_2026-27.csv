@@ -1,91 +1,92 @@
 PLAYER_ID,PLAYER_NAME,STATUS,RETURN_DATE,INJURY,UPDATED
-1642854,Asa Newell,Day-To-Day,2026-11-06,Toe,2026-11-05
-1630552,Jalen Johnson,Out,2026-11-06,Ankle,2026-11-04
-1629111,Jock Landale,Out,2026-11-06,Hip,2026-11-03
+1630552,Jalen Johnson,Out,2026-11-07,Ankle,2026-11-06
+1642933,Keshon Gilbert,Out,2026-11-07,Knee,2026-11-05
+1642854,Asa Newell,Out,2026-11-07,Toe,2026-11-05
+1629111,Jock Landale,Out,2026-11-07,Hip,2026-11-05
 1631243,Mouhamed Gueye,Out,2026-11-20,Foot,2026-10-19
 1643539,Henri Veesaar,Out,2027-07-01,Knee,2026-09-21
-1630202,Payton Pritchard,Day-To-Day,2026-11-06,Eye,2026-11-05
-1642269,Devin Carter,Out,2026-11-08,Illness,2026-11-04
-1628369,Jayson Tatum,Out,2026-11-06,Rest,2026-11-04
+1642269,Devin Carter,Out,2026-11-06,Illness,2026-11-04
 1630549,Day'Ron Sharpe,Day-To-Day,2026-11-04,Undisclosed,2026-11-05
-1641730,Noah Clowney,Day-To-Day,2026-11-07,Knee,2026-11-05
-1642856,Egor Demin,Out,2026-11-07,Leg,2026-10-29
+1642856,Egor Demin,Out,2026-11-11,Leg,2026-10-29
 1643548,Tyler Bilodeau,Out,2026-11-06,Shoulder,2026-10-25
-1642851,Kon Knueppel,Out,2026-11-06,Leg,2026-11-05
+1641706,Brandon Miller,Day-To-Day,2026-11-09,Groin,2026-11-07
+203471,Dennis Schroder,Out,2026-11-09,Thigh,2026-11-06
+1631217,Moussa Diabate,Out,2026-11-09,Quadriceps,2026-11-06
+1642851,Kon Knueppel,Out,2026-11-09,Hamstring,2026-11-05
 1629684,Grant Williams,Out,2026-11-09,Hamstring,2026-11-04
-1628380,Zach Collins,Day-To-Day,2026-11-08,Undisclosed,2026-11-05
+1628380,Zach Collins,Day-To-Day,2026-11-08,Illness,2026-11-06
+1629651,Nic Claxton,Out,2026-11-08,Hamstring,2026-11-06
 1630188,Jalen Smith,Day-To-Day,2026-11-08,Hand,2026-11-05
-1629651,Nic Claxton,Out,2026-11-08,Hamstring,2026-11-04
-1628386,Jarrett Allen,Day-To-Day,2026-11-06,Knee,2026-11-05
-1642878,Tyrese Proctor,Day-To-Day,2026-11-06,Ankle,2026-11-05
-1642281,Jaylon Tyson,Out,2026-11-06,Ankle,2026-11-05
-1631212,Peyton Watson,Out,2026-11-06,Hamstring,2026-11-03
-1630583,Santi Aldama,Out,2026-11-06,Knee,2026-11-04
-1631108,Max Christie,Out,2026-11-06,Hip,2026-11-03
+1630241,Sam Merrill,Out,2026-11-07,Elbow,2026-11-07
+1628386,Jarrett Allen,Out,2026-11-07,Knee,2026-11-06
+1642281,Jaylon Tyson,Out,2026-11-07,Ankle,2026-11-05
+1643547,Sergio de Larrea,Out,2026-11-12,Knee,2026-11-05
 1641844,Tarik Biberovic,Out,2026-11-12,Heel,2026-11-01
 1641726,Dereck Lively II,Out,2026-11-12,Foot,2026-11-01
-1643547,Sergio de Larrea,Out,2026-11-06,Knee,2026-10-30
-201942,DeMar DeRozan,Out,2026-11-07,Back,2026-11-05
-1642461,Spencer Jones,Out,2026-11-11,Hamstring,2026-11-03
+201942,DeMar DeRozan,Day-To-Day,2026-11-07,Back,2026-11-06
 1631124,Julian Strawther,Out,2026-11-29,Knee,2026-10-17
 1630198,Isaiah Joe,Out,2026-11-08,Hip,2026-11-03
 1631105,Jalen Duren,Out,2026-11-09,Hamstring,2026-10-25
-1630611,Gui Santos,Out,2026-11-07,Knee,2026-11-05
-204001,Kristaps Porzingis,Out,2026-12-01,Illness,2026-11-04
+203110,Draymond Green,Day-To-Day,2026-11-07,Elbow,2026-11-06
+1627780,Gary Payton II,Day-To-Day,2026-11-07,Calf,2026-11-06
+204001,Kristaps Porzingis,Out,2027-01-02,Illness,2026-11-06
+1630611,Gui Santos,Day-To-Day,2026-11-07,Knee,2026-11-06
 1630541,Moses Moody,Out,2026-12-01,Knee,2026-10-16
 202710,Jimmy Butler III,Out,2027-01-02,Knee,2026-10-16
+203991,Clint Capela,Out,2026-11-09,Ankle,2026-11-06
 203500,Steven Adams,Out,2026-11-09,Calf,2026-11-05
-203991,Clint Capela,Out,2026-11-07,Ankle,2026-11-04
-1626162,Kelly Oubre Jr.,Out,2026-11-07,Calf,2026-11-05
-204456,T.J. McConnell,Out,2026-11-09,Hamstring,2026-11-02
+204456,T.J. McConnell,Out,2026-11-07,Hamstring,2026-11-06
+1626162,Kelly Oubre Jr.,Day-To-Day,2026-11-07,Calf,2026-11-06
 1642277,Johnny Furphy,Out,2027-01-02,Knee,2026-10-30
 1641767,Ben Sheppard,Out,2027-01-02,Knee,2026-10-28
 1630169,Tyrese Haliburton,Out,2026-11-13,Hamstring,2026-10-28
+1627742,Brandon Ingram,Out,2026-11-08,Achilles,2026-11-06
 1642949,Yanic Konan Niederhauser,Out,2026-11-08,Foot,2026-11-02
-1627742,Brandon Ingram,Out,2026-11-08,Achilles,2026-11-02
-203078,Bradley Beal,Out,2026-11-08,Knee,2026-10-15
+203078,Bradley Beal,Out,2026-11-29,Knee,2026-10-15
 1641757,Jordan Miller,Out,2027-03-02,Shoulder,2026-08-26
-1642876,Adou Thiero,Out,2026-11-06,Knee,2026-11-04
-1630191,Isaiah Stewart,Day-To-Day,2026-11-06,Knee,2026-11-05
-1630590,Scotty Pippen Jr.,Out,2026-11-06,Back,2026-11-03
-1642880,Kam Jones,Out,2026-11-06,Ankle,2026-11-05
-1630545,Terrence Shannon Jr.,Out,2026-11-06,Hip,2026-11-04
+1630191,Isaiah Stewart,Out,2026-11-09,Knee,2026-11-05
+1630590,Scotty Pippen Jr.,Out,2026-11-09,Back,2026-11-05
+1642880,Kam Jones,Day-To-Day,2026-11-06,Ankle,2026-11-06
+1642866,Joan Beringer,Out,2026-11-08,Fracture,2026-11-07
+1630545,Terrence Shannon Jr.,Out,2026-11-08,Hip,2026-11-06
 1630162,Anthony Edwards,Out,2026-12-21,Knee,2026-10-29
 1628978,Donte DiVincenzo,Out,2027-04-02,Achilles,2026-10-05
-1630530,Trey Murphy III,Out,2026-11-06,Knee,2026-11-04
-1642274,Yves Missi,Out,2026-11-08,Knee,2026-10-30
-1628404,Josh Hart,Out,2026-11-07,Ankle,2026-11-04
-1631119,Jaylin Williams,Out,2026-11-06,Back,2026-11-04
+1642274,Yves Missi,Out,2026-11-09,Knee,2026-11-05
+1628404,Josh Hart,Out,2026-11-10,Ankle,2026-11-06
+1631119,Jaylin Williams,Out,2026-11-07,Back,2026-11-05
 1642260,Nikola Topic,Out,2026-11-13,Back,2026-11-03
 1642850,Thomas Sorber,Out,2026-11-13,Knee,2026-11-03
 1641717,Cason Wallace,Out,2027-03-02,Shoulder,2026-10-31
 1631096,Chet Holmgren,Out,2027-01-02,Knee,2026-10-31
 1631114,Jalen Williams,Out,2027-03-02,Leg,2026-10-28
-1628371,Jonathan Isaac,Out,2026-11-10,Knee,2026-11-02
+1628371,Jonathan Isaac,Out,2026-11-10,Knee,2026-11-05
 1630591,Jalen Suggs,Out,2026-11-10,Knee,2026-10-26
 1631094,Paolo Banchero,Out,2026-11-22,Ankle,2026-10-24
 1642869,Noah Penda,Out,2026-11-18,Hamstring,2026-10-17
 1643593,Izaiyah Nelson,Out,2026-11-18,Ankle,2026-09-28
-1641737,Adem Bona,Day-To-Day,2026-11-06,Head,2026-11-05
+1641737,Adem Bona,Out,2026-11-08,Back,2026-11-06
 1631230,Dominick Barlow,Out,2026-11-18,Back,2026-11-04
 1630574,Ariel Hukporti,Out,2027-10-01,Achilles,2026-10-06
-1630692,Jordan Goodwin,Out,2026-11-05,Calf,2026-11-05
-1642853,Rasheer Fleming,Out,2026-11-05,Ankle,2026-11-04
+1642853,Rasheer Fleming,Day-To-Day,2026-11-07,Ankle,2026-11-07
+1630692,Jordan Goodwin,Day-To-Day,2026-11-07,Calf,2026-11-07
 1631109,Mark Williams,Out,2027-02-03,Shoulder,2026-09-11
 1630249,Vit Krejci,Out,2027-01-02,Ankle,2026-11-05
 1629630,Ja Morant,Out,2026-12-01,Hamstring,2026-10-30
 1631101,Shaedon Sharpe,Out,2027-03-02,Knee,2026-08-24
-1631342,Daeqwon Plowden,Out,2026-11-06,Illness,2026-11-04
+1629631,De'Andre Hunter,Out,2026-11-08,Illness,2026-11-07
 1642875,Maxime Raynaud,Out,2026-11-10,Knee,2026-10-26
 1631099,Keegan Murray,Out,2026-11-10,Ankle,2026-10-26
 1627732,Ben Simmons,Out,2027-10-01,Achilles,2026-10-21
 202699,Tobias Harris,Out,2026-11-09,Calf,2026-10-30
 1643519,Jayden Quaintance,Out,2026-12-03,Knee,2026-10-05
+1630567,Scottie Barnes,Out,2026-11-09,Groin,2026-11-06
+1630193,Immanuel Quickley,Out,2026-11-09,Hamstring,2026-11-06
 202695,Kawhi Leonard,Out,2026-11-23,Knee,2026-11-04
 1642927,Nate Bittle,Out,2026-11-09,Foot,2026-11-02
-203994,Jusuf Nurkic,Out,2026-11-13,Foot,2026-11-03
+203994,Jusuf Nurkic,Out,2026-11-20,Foot,2026-11-06
 1628991,Jaren Jackson Jr.,Out,2026-12-14,Knee,2026-10-27
 1641725,Trey Alexander,Out,2026-11-06,Knee,2026-10-24
+203076,Anthony Davis,Out,2026-11-07,Ankle,2026-11-06
 1641736,Reece Beekman,Out,2026-12-03,Shoulder,2026-11-02
 1641774,Tristan Vukcevic,Out,2026-11-09,Hip,2026-11-01
 1630551,Justin Champagnie,Out,2027-02-25,Foot,2026-10-28
